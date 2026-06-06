@@ -68,18 +68,21 @@ let engineOsc, engineGain;
 function startEngine() {
   engineOsc = audioCtx.createOscillator();
   engineGain = audioCtx.createGain();
-  engineOsc.type = 'sawtooth';
-  engineOsc.frequency.value = 80;
-  engineGain.gain.value = 0.04;
-  engineOsc.connect(engineGain);
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 200;
+  engineOsc.type = 'sine';
+  engineOsc.frequency.value = 45;
+  engineGain.gain.value = 0.015;
+  engineOsc.connect(filter);
+  filter.connect(engineGain);
   engineGain.connect(audioCtx.destination);
   engineOsc.start();
 }
 
 function updateEngineSound() {
   if (engineOsc) {
-    engineOsc.frequency.value = 60 + gameSpeed * 8;
-    engineGain.gain.value = 0.03 + gameSpeed * 0.003;
+    engineOsc.frequency.value = 40 + gameSpeed * 4;
+    engineGain.gain.value = 0.012 + gameSpeed * 0.001;
   }
 }
 
