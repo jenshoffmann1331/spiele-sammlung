@@ -130,30 +130,33 @@ function startMusic() {
   const noteMap = {'C':0,'D':2,'E':4,'F':5,'G':7,'A':9,'B':11};
   function freq(n) { return 440 * Math.pow(2, (noteMap[n[0]] - 9) / 12 + (parseInt(n.slice(-1)) - 4)); }
   const bassLine = ['E2','E2','E2','E2','A2','A2','B2','B2','E2','E2','E2','E2','C3','B2','A2','G2'];
+  let nextLoopTime = audioCtx.currentTime;
   function playLoop() {
     if (gameOver) return;
-    const t0 = audioCtx.currentTime + 0.05;
-    bassLine.forEach((n, i) => {
-      const osc = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      osc.type = 'square'; osc.frequency.value = freq(n);
-      osc.connect(g); g.connect(master);
-      const t = t0 + i * beat;
-      g.gain.setValueAtTime(0.4, t);
-      g.gain.linearRampToValueAtTime(0, t + beat * 0.6);
-      osc.start(t); osc.stop(t + beat);
-    });
-    // Kick on every beat
-    for (let i = 0; i < bassLine.length; i++) {
-      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.05, audioCtx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let s = 0; s < d.length; s++) d[s] = Math.sin(s * 0.1 * Math.exp(-s/400)) * Math.exp(-s/(d.length*0.3));
-      const src = audioCtx.createBufferSource(); src.buffer = buf;
-      const g = audioCtx.createGain(); g.gain.value = i % 4 === 0 ? 0.7 : 0.3;
-      src.connect(g); g.connect(master);
-      src.start(t0 + i * beat);
+    // Schedule ahead only if we haven't already
+    while (nextLoopTime < audioCtx.currentTime + 0.5) {
+      bassLine.forEach((n, i) => {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'square'; osc.frequency.value = freq(n);
+        osc.connect(g); g.connect(master);
+        const t = nextLoopTime + i * beat;
+        g.gain.setValueAtTime(0.4, t);
+        g.gain.linearRampToValueAtTime(0, t + beat * 0.6);
+        osc.start(t); osc.stop(t + beat);
+      });
+      for (let i = 0; i < bassLine.length; i++) {
+        const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.05, audioCtx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let s = 0; s < d.length; s++) d[s] = Math.sin(s * 0.1 * Math.exp(-s/400)) * Math.exp(-s/(d.length*0.3));
+        const src = audioCtx.createBufferSource(); src.buffer = buf;
+        const g = audioCtx.createGain(); g.gain.value = i % 4 === 0 ? 0.7 : 0.3;
+        src.connect(g); g.connect(master);
+        src.start(nextLoopTime + i * beat);
+      }
+      nextLoopTime += bassLine.length * beat;
     }
-    setTimeout(playLoop, bassLine.length * beat * 1000);
+    setTimeout(playLoop, 400);
   }
   playLoop();
 }
