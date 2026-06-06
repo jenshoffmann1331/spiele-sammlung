@@ -2,13 +2,14 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>🔨 Nagel-Hammer Spiel</title>
 <style>
 * { margin: 0; padding: 0; }
-body { overflow: hidden; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; }
-canvas { display: block; border-radius: 4px; }
-#ui { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); display: flex; gap: 2rem; font-family: 'Comic Sans MS', cursive; font-size: 1.4rem; color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.7); }
-#hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); font-family: 'Comic Sans MS', cursive; color: #ffd700; font-size: 1.1rem; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); animation: pulse 2s infinite; }
+body { overflow: hidden; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100dvh; touch-action: none; }
+canvas { display: block; border-radius: 4px; max-width: 100vw; max-height: 100dvh; }
+#ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 1.2rem; font-family: 'Comic Sans MS', cursive; font-size: clamp(1rem, 4vw, 1.4rem); color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.7); }
+#hint { position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); font-family: 'Comic Sans MS', cursive; color: #ffd700; font-size: clamp(0.8rem, 3vw, 1.1rem); text-shadow: 1px 1px 3px rgba(0,0,0,0.8); animation: pulse 2s infinite; text-align: center; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>
 </head>
@@ -19,12 +20,21 @@ canvas { display: block; border-radius: 4px; }
 </div>
 <canvas id="c"></canvas>
 <div style="position:absolute;bottom:5px;right:10px;font-family:'Comic Sans MS',cursive;font-size:0.7rem;color:rgba(255,255,255,0.4);">© Caroline Hoffmann</div>
-<div id="hint">⎵ Leertaste drücken um zu hämmern!</div>
+<div id="hint">Tippen oder Leertaste um zu hämmern!</div>
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const W = canvas.width = 800;
 const H = canvas.height = 600;
+
+// Responsive canvas scaling
+function resizeCanvas() {
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.style.width = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
 
 let score = 0;
 let highscore = parseInt(localStorage.getItem('nagelHighscore2') || '0');
@@ -775,7 +785,7 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); hitNail(); }
 });
 canvas.addEventListener('click', () => hitNail());
-canvas.addEventListener('touchstart', e => { e.preventDefault(); hitNail(); });
+document.body.addEventListener('touchstart', e => { e.preventDefault(); hitNail(); }, { passive: false });
 
 resetNail();
 loop();
