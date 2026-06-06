@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🏎️ Autobahn Ausweich-Spiel</title>
+<style>
+* { margin: 0; padding: 0; }
+body { overflow: hidden; background: #111; display: flex; justify-content: center; align-items: center; height: 100dvh; touch-action: none; font-family: 'Comic Sans MS', cursive; }
+canvas { display: block; max-width: 100vw; max-height: 100dvh; }
+#ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 1.5rem; font-size: clamp(1rem, 4vw, 1.3rem); color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); z-index: 10; }
+#gameover { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,0.85); color: #fff; padding: 2rem 3rem; border-radius: 16px; text-align: center; display: none; z-index: 20; }
+#gameover h2 { font-size: 1.8rem; margin-bottom: 0.5rem; color: #ff4444; }
+#gameover p { margin: 0.5rem 0; }
+#gameover button { margin-top: 1rem; padding: 0.8rem 2rem; font-size: 1.1rem; border: none; border-radius: 8px; background: #4CAF50; color: #fff; cursor: pointer; font-family: inherit; }
+.copyright { position: absolute; bottom: 5px; right: 10px; font-size: 0.7rem; color: rgba(255,255,255,0.3); }
+</style>
+</head>
+<body>
+<div id="ui">
+<span>⭐ <span id="score">0</span></span>
+<span>🏆 <span id="highscore">0</span></span>
+<span>🚀 <span id="speed">1</span>x</span>
+</div>
+<div id="gameover">
+<h2>💥 Crash!</h2>
+<p>Punkte: <span id="finalScore">0</span></p>
+<p>Highscore: <span id="finalHigh">0</span></p>
+<button onclick="restart()">Nochmal!</button>
+</div>
+<canvas id="c"></canvas>
+<div class="copyright">© Caroline Hoffmann</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width = 420;
+const H = canvas.height = 700;
+
+// Responsive
+function resize() {
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.style.width = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+}
+resize(); window.addEventListener('resize', resize);
+
+// Game state
+const LANES = 6;
+const LANE_W = W / LANES;
+let playerLane = 2;
+let score = 0;
+let highscore = parseInt(localStorage.getItem('autoHighscore') || '0');
+let gameSpeed = 3;
+let maxSpeed = 12;
+let obstacles = [];
+let coins = [];
+let roadOffset = 0;
+let gameOver = false;
+let frameCount = 0;
+
+document.getElementById('highscore').textContent = highscore;
+
+// --- AUDIO ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let musicStarted = false;
+let engineOsc, engineGain;
+
+function startEngine() {
+  engineOsc = audioCtx.createOscillator();
+  engineGain = audioCtx.createGain();
+  engineOsc.type = 'sawtooth';
+  engineOsc.frequency.value = 80;
+  engineGain.gain.value = 0.04;
+  engineOsc.connect(engineGain);
+  engineGain.connect(audioCtx.destination);
+  engineOsc.start();
+}
+
+function updateEngineSound() {
+  if (engineOsc) {
+    engineOsc.frequency.value = 60 + gameSpeed * 8;
+    engineGain.gain.value = 0.03 + gameSpeed * 0.003;
+  }
+}
+
+function playCrash() {
+  const bufSize = audioCtx.sampleRate * 0.4;
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufSize * 0.3));
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const g = audioCtx.createGain(); g.gain.value = 0.5;
+  const lp = audioCtx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200;
+  src.connect(lp); lp.connect(g); g.connect(audioCtx.destination);
+  src.start();
+  // Metal
+  const osc = audioCtx.createOscillator();
+  const g2 = audioCtx.createGain();
+  osc.type = 'square'; osc.frequency.value = 200;
+  osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+  g2.gain.setValueAtTime(0.2, audioCtx.currentTime);
+  g2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+  osc.connect(g2); g2.connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+}
+
+function playCoin() {
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = 'sine'; osc.frequency.value = 880;
+  osc.frequency.setValueAtTime(880, t);
+  osc.frequency.exponentialRampToValueAtTime(1320, t + 0.1);
+  g.gain.setValueAtTime(0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  osc.connect(g); g.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + 0.15);
+}
+
+function startMusic() {
+  if (musicStarted) return;
+  musicStarted = true;
+  audioCtx.resume();
+  startEngine();
+  const bpm = 160; const beat = 60 / bpm;
+  const master = audioCtx.createGain(); master.gain.value = 0.08; master.connect(audioCtx.destination);
+  const noteMap = {'C':0,'D':2,'E':4,'F':5,'G':7,'A':9,'B':11};
+  function freq(n) { return 440 * Math.pow(2, (noteMap[n[0]] - 9) / 12 + (parseInt(n.slice(-1)) - 4)); }
+  const bassLine = ['E2','E2','E2','E2','A2','A2','B2','B2','E2','E2','E2','E2','C3','B2','A2','G2'];
+  function playLoop() {
+    if (gameOver) return;
+    const t0 = audioCtx.currentTime + 0.05;
+    bassLine.forEach((n, i) => {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'square'; osc.frequency.value = freq(n);
+      osc.connect(g); g.connect(master);
+      const t = t0 + i * beat;
+      g.gain.setValueAtTime(0.4, t);
+      g.gain.linearRampToValueAtTime(0, t + beat * 0.6);
+      osc.start(t); osc.stop(t + beat);
+    });
+    // Kick on every beat
+    for (let i = 0; i < bassLine.length; i++) {
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.05, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let s = 0; s < d.length; s++) d[s] = Math.sin(s * 0.1 * Math.exp(-s/400)) * Math.exp(-s/(d.length*0.3));
+      const src = audioCtx.createBufferSource(); src.buffer = buf;
+      const g = audioCtx.createGain(); g.gain.value = i % 4 === 0 ? 0.7 : 0.3;
+      src.connect(g); g.connect(master);
+      src.start(t0 + i * beat);
+    }
+    setTimeout(playLoop, bassLine.length * beat * 1000);
+  }
+  playLoop();
+}
+
+// --- GAME ---
+function laneX(lane) { return lane * LANE_W + LANE_W / 2; }
+
+function spawnObstacle() {
+  const lane = Math.floor(Math.random() * LANES);
+  const type = Math.random() > 0.3 ? 'car' : 'truck';
+  const colors = ['#2196F3','#4CAF50','#FF9800','#9C27B0','#00BCD4','#FFC107','#795548'];
+  obstacles.push({ lane, y: -80, type, color: colors[Math.floor(Math.random() * colors.length)] });
+}
+
+function spawnCoin() {
+  const lane = Math.floor(Math.random() * LANES);
+  coins.push({ lane, y: -30 });
+}
+
+function moveLane(dir) {
+  if (gameOver) return;
+  startMusic();
+  const newLane = playerLane + dir;
+  if (newLane >= 0 && newLane < LANES) playerLane = newLane;
+}
+
+function update() {
+  if (gameOver) return;
+  frameCount++;
+
+  // Increase speed
+  if (frameCount % 120 === 0 && gameSpeed < maxSpeed) {
+    gameSpeed += 0.2;
+    document.getElementById('speed').textContent = gameSpeed.toFixed(1);
+  }
+  updateEngineSound();
+
+  // Road scroll
+  roadOffset = (roadOffset + gameSpeed) % 40;
+
+  // Spawn
+  const spawnRate = Math.max(20, 60 - gameSpeed * 3);
+  if (frameCount % Math.round(spawnRate) === 0) spawnObstacle();
+  if (frameCount % 90 === 0) spawnCoin();
+
+  // Move obstacles
+  obstacles.forEach(o => o.y += gameSpeed);
+  obstacles = obstacles.filter(o => o.y < H + 100);
+
+  // Move coins
+  coins.forEach(c => c.y += gameSpeed);
+  coins = coins.filter(c => c.y < H + 50);
+
+  // Player position
+  const px = laneX(playerLane);
+  const py = H - 120;
+
+  // Collision with obstacles
+  for (let o of obstacles) {
+    const ox = laneX(o.lane);
+    const oH = o.type === 'truck' ? 70 : 50;
+    if (Math.abs(ox - px) < LANE_W * 0.7 && o.y + oH > py - 20 && o.y < py + 40) {
+      gameOver = true;
+      playCrash();
+      if (engineOsc) { engineGain.gain.value = 0; }
+      if (score > highscore) { highscore = score; localStorage.setItem('autoHighscore', highscore); }
+      document.getElementById('finalScore').textContent = score;
+      document.getElementById('finalHigh').textContent = highscore;
+      document.getElementById('highscore').textContent = highscore;
+      document.getElementById('gameover').style.display = 'block';
+      return;
+    }
+  }
+
+  // Coin pickup
+  for (let i = coins.length - 1; i >= 0; i--) {
+    const c = coins[i];
+    const cx = laneX(c.lane);
+    if (Math.abs(cx - px) < LANE_W * 0.6 && c.y > py - 25 && c.y < py + 35) {
+      coins.splice(i, 1);
+      score += 10;
+      document.getElementById('score').textContent = score;
+      playCoin();
+    }
+  }
+}
+
+function draw() {
+  // Road
+  ctx.fillStyle = '#333';
+  ctx.fillRect(0, 0, W, H);
+
+  // Lane markings
+  ctx.strokeStyle = '#ffcc00';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([30, 20]);
+  ctx.lineDashOffset = -roadOffset * 2;
+  for (let i = 1; i < LANES; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * LANE_W, 0);
+    ctx.lineTo(i * LANE_W, H);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Road edges
+  ctx.fillStyle = '#666';
+  ctx.fillRect(0, 0, 4, H);
+  ctx.fillRect(W - 4, 0, 4, H);
+  // Edge stripes
+  ctx.fillStyle = '#ff0000';
+  for (let y = -roadOffset * 2; y < H; y += 40) {
+    ctx.fillRect(0, y, 4, 20);
+    ctx.fillRect(W - 4, y, 4, 20);
+  }
+
+  // Coins
+  coins.forEach(c => {
+    const cx = laneX(c.lane);
+    const grad = ctx.createRadialGradient(cx - 2, c.y - 2, 1, cx, c.y, 12);
+    grad.addColorStop(0, '#fff700');
+    grad.addColorStop(0.6, '#ffaa00');
+    grad.addColorStop(1, '#cc7700');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(cx, c.y, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('$', cx, c.y + 4);
+  });
+
+  // Obstacles
+  obstacles.forEach(o => {
+    const ox = laneX(o.lane);
+    const oW = LANE_W * 0.6;
+    const oH = o.type === 'truck' ? 70 : 50;
+    // Body
+    const grad = ctx.createLinearGradient(ox - oW/2, 0, ox + oW/2, 0);
+    grad.addColorStop(0, o.color);
+    grad.addColorStop(0.5, lighten(o.color, 30));
+    grad.addColorStop(1, o.color);
+    ctx.fillStyle = grad;
+    roundRect2(ox - oW/2, o.y, oW, oH, 6); ctx.fill();
+    // Windshield
+    ctx.fillStyle = 'rgba(150,220,255,0.6)';
+    roundRect2(ox - oW/3, o.y + oH - 15, oW * 0.66, 10, 3); ctx.fill();
+    // Headlights (facing player = taillights)
+    ctx.fillStyle = '#ff3333';
+    ctx.beginPath(); ctx.arc(ox - oW/3, o.y + oH - 2, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ox + oW/3, o.y + oH - 2, 4, 0, Math.PI * 2); ctx.fill();
+  });
+
+  // Player car
+  const px = laneX(playerLane);
+  const py = H - 120;
+  const pW = LANE_W * 0.6;
+  const pH = 55;
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.ellipse(px, py + pH/2 + 5, pW/2 + 3, 10, 0, 0, Math.PI * 2); ctx.fill();
+  // Body
+  const pGrad = ctx.createLinearGradient(px - pW/2, 0, px + pW/2, 0);
+  pGrad.addColorStop(0, '#cc0000');
+  pGrad.addColorStop(0.3, '#ff2222');
+  pGrad.addColorStop(0.7, '#ff2222');
+  pGrad.addColorStop(1, '#990000');
+  ctx.fillStyle = pGrad;
+  roundRect2(px - pW/2, py - pH/2, pW, pH, 8); ctx.fill();
+  // Roof/windshield
+  ctx.fillStyle = 'rgba(100,180,255,0.5)';
+  roundRect2(px - pW/3, py - pH/4, pW * 0.66, pH * 0.35, 4); ctx.fill();
+  // Rear lights
+  ctx.fillStyle = '#ff8800';
+  ctx.beginPath(); ctx.arc(px - pW/3, py + pH/2 - 4, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(px + pW/3, py + pH/2 - 4, 4, 0, Math.PI * 2); ctx.fill();
+  // Front lights
+  ctx.fillStyle = '#ffffaa';
+  ctx.beginPath(); ctx.arc(px - pW/3, py - pH/2 + 4, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(px + pW/3, py - pH/2 + 4, 3, 0, Math.PI * 2); ctx.fill();
+}
+
+function roundRect2(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function lighten(hex, amt) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  r = Math.min(255, r + amt); g = Math.min(255, g + amt); b = Math.min(255, b + amt);
+  return `rgb(${r},${g},${b})`;
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function restart() {
+  gameOver = false;
+  score = 0; gameSpeed = 3; frameCount = 0;
+  playerLane = 2; obstacles = []; coins = [];
+  document.getElementById('score').textContent = 0;
+  document.getElementById('speed').textContent = '1';
+  document.getElementById('gameover').style.display = 'none';
+  if (engineGain) engineGain.gain.value = 0.04;
+  musicStarted = false;
+}
+
+// Controls
+document.addEventListener('keydown', e => {
+  if (e.code === 'ArrowLeft') moveLane(-1);
+  else if (e.code === 'ArrowRight') moveLane(1);
+});
+
+// Touch: swipe left/right
+let touchStartX = 0;
+document.addEventListener('touchstart', e => {
+  touchStartX = e.touches[0].clientX;
+  startMusic();
+});
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  if (Math.abs(dx) > 30) moveLane(dx > 0 ? 1 : -1);
+});
+
+loop();
+</script>
+</body>
+</html>
