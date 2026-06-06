@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>🔨 Nagel-Hammer Spiel</title>
+<style>
+* { margin: 0; padding: 0; }
+body { overflow: hidden; background: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; }
+canvas { display: block; border-radius: 4px; }
+#ui { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); display: flex; gap: 2rem; font-family: 'Comic Sans MS', cursive; font-size: 1.4rem; color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.7); }
+#hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); font-family: 'Comic Sans MS', cursive; color: #ffd700; font-size: 1.1rem; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+</style>
+</head>
+<body>
+<div id="ui">
+<span>⭐ Score: <span id="score">0</span></span>
+<span>🏆 Best: <span id="highscore">0</span></span>
+</div>
+<canvas id="c"></canvas>
+<div id="hint">⎵ Leertaste drücken um zu hämmern!</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width = 800;
+const H = canvas.height = 600;
+
+let score = 0;
+let highscore = parseInt(localStorage.getItem('nagelHighscore2') || '0');
+document.getElementById('highscore').textContent = highscore;
+
+// Nail: moves left-right along the workbench
+let nail = { x: 100, dir: 1, speed: 2.5, sunk: 0, maxSunk: 4, hit: false };
+const NAIL_Y = H - 100; // top of nail head position
+const NAIL_ZONE_LEFT = 80;
+const NAIL_ZONE_RIGHT = W - 80;
+
+// Hammer swing: angle from raised (up) to down
+let hammerState = 'ready'; // ready, swinging, returning
+let hammerAngle = 0; // 0 = up, 1 = fully down
+
+// Particles
+let particles = [];
+let stars = [];
+
+function resetNail() {
+  nail.x = Math.random() > 0.5 ? NAIL_ZONE_LEFT : NAIL_ZONE_RIGHT;
+  nail.dir = nail.x < W / 2 ? 1 : -1;
+  nail.sunk = 0;
+  nail.hit = false;
+  nail.speed = 2.5 + score * 0.4;
+  if (nail.speed > 9) nail.speed = 9;
+}
+
+// --- DRAWING ---
+
+function drawBackground() {
+  // Back wall - warm wood panels
+  const wallGrad = ctx.createLinearGradient(0, 0, 0, H - 150);
+  wallGrad.addColorStop(0, '#6b422a');
+  wallGrad.addColorStop(0.5, '#5a3520');
+  wallGrad.addColorStop(1, '#4a2a18');
+  ctx.fillStyle = wallGrad;
+  ctx.fillRect(0, 0, W, H - 150);
+
+  // Horizontal wood planks
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 1;
+  for (let y = 0; y < H - 150; y += 50) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    // Subtle grain
+    ctx.strokeStyle = 'rgba(255,200,100,0.04)';
+    for (let gx = 0; gx < W; gx += 30) {
+      ctx.beginPath(); ctx.moveTo(gx, y); ctx.quadraticCurveTo(gx + 15, y + 25, gx + 5, y + 50); ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  }
+
+  // Pegboard
+  ctx.fillStyle = '#7a5535';
+  roundRect(40, 30, 140, 100, 6);
+  ctx.fill();
+  ctx.strokeStyle = '#5a3a20'; ctx.lineWidth = 2; ctx.stroke();
+  // Pegs and tool silhouettes
+  ctx.fillStyle = '#3a3a3a';
+  roundRect(60, 50, 10, 55, 3); ctx.fill(); // screwdriver
+  ctx.fillStyle = '#555';
+  roundRect(90, 45, 14, 45, 3); ctx.fill(); // wrench
+  ctx.fillStyle = '#444';
+  ctx.beginPath(); ctx.arc(145, 70, 18, 0, Math.PI * 2); ctx.fill(); // saw blade
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    ctx.beginPath(); ctx.moveTo(145 + Math.cos(a) * 14, 70 + Math.sin(a) * 14);
+    ctx.lineTo(145 + Math.cos(a) * 18, 70 + Math.sin(a) * 18); ctx.stroke();
+  }
+
+  // Shelf with items
+  ctx.fillStyle = '#5a3518';
+  roundRect(520, 50, 240, 14, 3); ctx.fill();
+  // Jar
+  ctx.fillStyle = '#88aacc'; ctx.globalAlpha = 0.7;
+  roundRect(540, 20, 25, 30, 4); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#aa7733'; roundRect(540, 18, 25, 6, 2); ctx.fill();
+  // Box
+  ctx.fillStyle = '#c0863a'; roundRect(600, 28, 40, 22, 3); ctx.fill();
+  ctx.fillStyle = '#a06a28'; roundRect(600, 28, 40, 5, 2); ctx.fill();
+  // Nails jar
+  ctx.fillStyle = '#999'; roundRect(680, 30, 20, 20, 3); ctx.fill();
+  ctx.fillStyle = '#bbb';
+  for (let i = 0; i < 4; i++) ctx.fillRect(683 + i * 4, 35, 1.5, 10);
+
+  // Light from above (ambient)
+  const lightGrad = ctx.createRadialGradient(W / 2, 0, 50, W / 2, 0, 400);
+  lightGrad.addColorStop(0, 'rgba(255,220,150,0.08)');
+  lightGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = lightGrad;
+  ctx.fillRect(0, 0, W, H - 150);
+
+  // Workbench top
+  const benchGrad = ctx.createLinearGradient(0, H - 150, 0, H);
+  benchGrad.addColorStop(0, '#a07828');
+  benchGrad.addColorStop(0.05, '#b8883a');
+  benchGrad.addColorStop(0.1, '#a07828');
+  benchGrad.addColorStop(1, '#705010');
+  ctx.fillStyle = benchGrad;
+  ctx.fillRect(0, H - 150, W, 150);
+
+  // Bench edge highlight
+  ctx.fillStyle = 'rgba(255,220,150,0.15)';
+  ctx.fillRect(0, H - 150, W, 4);
+
+  // Wood grain on bench
+  ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+  ctx.lineWidth = 1;
+  for (let y = H - 145; y < H; y += 12) {
+    ctx.beginPath();
+    for (let x = 0; x < W; x += 8) {
+      ctx.lineTo(x, y + Math.sin(x * 0.03 + y) * 2);
+    }
+    ctx.stroke();
+  }
+}
+
+// The plank/block that the nail goes into
+function drawPlank() {
+  const px = nail.x;
+  const py = NAIL_Y + 10;
+  ctx.fillStyle = '#9e7530';
+  roundRect(px - 35, py, 70, 45, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#7a5520'; ctx.lineWidth = 2; ctx.stroke();
+  // Grain
+  ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(px - 30, py + 15); ctx.lineTo(px + 30, py + 15); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(px - 25, py + 30); ctx.lineTo(px + 28, py + 30); ctx.stroke();
+}
+
+function drawNail() {
+  const nx = nail.x;
+  const sunkOffset = nail.sunk * 8;
+  const ny = NAIL_Y + sunkOffset;
+
+  // Nail shaft
+  const shaftGrad = ctx.createLinearGradient(nx - 3, 0, nx + 3, 0);
+  shaftGrad.addColorStop(0, '#d0d0d0');
+  shaftGrad.addColorStop(0.5, '#f0f0f0');
+  shaftGrad.addColorStop(1, '#a0a0a0');
+  ctx.fillStyle = shaftGrad;
+  ctx.fillRect(nx - 2.5, ny - 30, 5, 35);
+
+  // Nail head
+  const headGrad = ctx.createRadialGradient(nx - 2, ny - 32, 1, nx, ny - 30, 9);
+  headGrad.addColorStop(0, '#e8e8e8');
+  headGrad.addColorStop(1, '#777');
+  ctx.fillStyle = headGrad;
+  ctx.beginPath(); ctx.ellipse(nx, ny - 30, 9, 5, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Nail point
+  ctx.fillStyle = '#bbb';
+  ctx.beginPath();
+  ctx.moveTo(nx - 2.5, ny + 5);
+  ctx.lineTo(nx + 2.5, ny + 5);
+  ctx.lineTo(nx, ny + 14);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCharacter() {
+  const cx = W / 2;
+  const cy = H - 310;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Shadow under character
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath(); ctx.ellipse(0, 175, 30, 8, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Hair back (long, flowing)
+  ctx.fillStyle = '#3d2314';
+  ctx.beginPath();
+  ctx.moveTo(-25, -5);
+  ctx.quadraticCurveTo(-30, 40, -26, 90);
+  ctx.quadraticCurveTo(-22, 110, -18, 100);
+  ctx.lineTo(-15, 50);
+  ctx.lineTo(15, 50);
+  ctx.lineTo(18, 100);
+  ctx.quadraticCurveTo(22, 110, 26, 90);
+  ctx.quadraticCurveTo(30, 40, 25, -5);
+  ctx.closePath();
+  ctx.fill();
+
+  // More hair strands at back
+  ctx.beginPath();
+  ctx.moveTo(-20, 20); ctx.quadraticCurveTo(-28, 70, -22, 105); ctx.quadraticCurveTo(-18, 108, -16, 95); ctx.quadraticCurveTo(-20, 60, -15, 20);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(20, 20); ctx.quadraticCurveTo(28, 70, 22, 105); ctx.quadraticCurveTo(18, 108, 16, 95); ctx.quadraticCurveTo(20, 60, 15, 20);
+  ctx.fill();
+
+  // Body / torso - beige cardigan
+  const cardiganGrad = ctx.createLinearGradient(-20, 35, 20, 35);
+  cardiganGrad.addColorStop(0, '#c4a880');
+  cardiganGrad.addColorStop(0.5, '#dbbf9a');
+  cardiganGrad.addColorStop(1, '#c4a880');
+  ctx.fillStyle = cardiganGrad;
+  ctx.beginPath();
+  ctx.moveTo(-16, 35);
+  ctx.quadraticCurveTo(-22, 55, -20, 85);
+  ctx.lineTo(-18, 90);
+  ctx.lineTo(18, 90);
+  ctx.lineTo(20, 85);
+  ctx.quadraticCurveTo(22, 55, 16, 35);
+  ctx.closePath();
+  ctx.fill();
+  // Cardigan line
+  ctx.strokeStyle = '#a89070'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, 37); ctx.lineTo(0, 88); ctx.stroke();
+  // Buttons
+  ctx.fillStyle = '#8a7050';
+  for (let by = 50; by < 85; by += 14) { ctx.beginPath(); ctx.arc(0, by, 2.5, 0, Math.PI * 2); ctx.fill(); }
+
+  // White skirt
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(-18, 88);
+  ctx.quadraticCurveTo(-26, 110, -24, 135);
+  ctx.quadraticCurveTo(-20, 140, -10, 138);
+  ctx.lineTo(10, 138);
+  ctx.quadraticCurveTo(20, 140, 24, 135);
+  ctx.quadraticCurveTo(26, 110, 18, 88);
+  ctx.closePath();
+  ctx.fill();
+  // Skirt folds
+  ctx.strokeStyle = 'rgba(200,200,220,0.5)'; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(-5, 92); ctx.quadraticCurveTo(-8, 115, -6, 135); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(7, 92); ctx.quadraticCurveTo(10, 115, 8, 135); ctx.stroke();
+
+  // Legs
+  const skinColor = '#e2bb92';
+  ctx.fillStyle = skinColor;
+  roundRect(-11, 135, 8, 28, 3); ctx.fill();
+  roundRect(3, 135, 8, 28, 3); ctx.fill();
+  // Shoes
+  ctx.fillStyle = '#4a3020';
+  roundRect(-13, 160, 12, 10, 4); ctx.fill();
+  roundRect(1, 160, 12, 10, 4); ctx.fill();
+  ctx.fillStyle = '#5a4030';
+  ctx.fillRect(-12, 160, 10, 3);
+  ctx.fillRect(2, 160, 10, 3);
+
+  // Left arm (resting)
+  ctx.fillStyle = '#dbbf9a';
+  ctx.beginPath();
+  ctx.moveTo(-16, 40);
+  ctx.quadraticCurveTo(-28, 55, -26, 75);
+  ctx.quadraticCurveTo(-24, 80, -20, 75);
+  ctx.quadraticCurveTo(-22, 55, -14, 44);
+  ctx.closePath();
+  ctx.fill();
+  // Left hand
+  ctx.fillStyle = skinColor;
+  ctx.beginPath(); ctx.ellipse(-24, 78, 5, 6, 0.2, 0, Math.PI * 2); ctx.fill();
+
+  // Right arm + hammer (swinging)
+  ctx.save();
+  ctx.translate(18, 40);
+  // Arm swings: 0 = raised, 1 = down
+  const swingAngle = -1.2 + hammerAngle * 1.8; // from -1.2 rad (up) to 0.6 rad (down)
+  ctx.rotate(swingAngle);
+
+  // Upper arm
+  ctx.fillStyle = '#dbbf9a';
+  roundRect(-5, -2, 10, 40, 4); ctx.fill();
+  // Hand
+  ctx.fillStyle = skinColor;
+  ctx.beginPath(); ctx.ellipse(0, 40, 6, 6, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Hammer handle
+  ctx.fillStyle = '#8b5e2a';
+  roundRect(-3, 38, 6, 55, 2); ctx.fill();
+  // Handle grain
+  ctx.strokeStyle = 'rgba(0,0,0,0.1)'; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(-1, 42); ctx.lineTo(-1, 90); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(2, 44); ctx.lineTo(2, 88); ctx.stroke();
+
+  // Hammer head
+  const headGrad = ctx.createLinearGradient(-14, 88, 14, 88);
+  headGrad.addColorStop(0, '#555');
+  headGrad.addColorStop(0.3, '#888');
+  headGrad.addColorStop(0.7, '#777');
+  headGrad.addColorStop(1, '#444');
+  ctx.fillStyle = headGrad;
+  roundRect(-14, 88, 28, 18, 3); ctx.fill();
+  // Hammer head shine
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(-12, 89, 24, 4);
+
+  ctx.restore();
+
+  // Head
+  ctx.fillStyle = skinColor;
+  ctx.beginPath(); ctx.ellipse(0, 5, 22, 26, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Hair front (bangs)
+  ctx.fillStyle = '#3d2314';
+  ctx.beginPath();
+  ctx.moveTo(-23, 0);
+  ctx.quadraticCurveTo(-22, -28, -5, -28);
+  ctx.quadraticCurveTo(5, -30, 20, -26);
+  ctx.quadraticCurveTo(24, -20, 23, 0);
+  // Bangs shape
+  ctx.quadraticCurveTo(18, -8, 12, -5);
+  ctx.quadraticCurveTo(8, -12, 3, -5);
+  ctx.quadraticCurveTo(-2, -14, -6, -6);
+  ctx.quadraticCurveTo(-10, -13, -15, -4);
+  ctx.quadraticCurveTo(-20, -6, -23, 0);
+  ctx.fill();
+
+  // Side hair framing face
+  ctx.beginPath();
+  ctx.moveTo(-22, -2); ctx.quadraticCurveTo(-26, 15, -22, 35);
+  ctx.quadraticCurveTo(-20, 37, -18, 30); ctx.quadraticCurveTo(-22, 12, -20, 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(22, -2); ctx.quadraticCurveTo(26, 15, 22, 35);
+  ctx.quadraticCurveTo(20, 37, 18, 30); ctx.quadraticCurveTo(22, 12, 20, 2);
+  ctx.fill();
+
+  // Eyes
+  // White
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.ellipse(-8, 3, 7.5, 9, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(8, 3, 7.5, 9, 0, 0, Math.PI * 2); ctx.fill();
+  // Iris (warm brown)
+  const irisGrad = ctx.createRadialGradient(-8, 4, 1, -8, 4, 6);
+  irisGrad.addColorStop(0, '#8b5a2b');
+  irisGrad.addColorStop(0.7, '#5c3317');
+  irisGrad.addColorStop(1, '#3a1a08');
+  ctx.fillStyle = irisGrad;
+  ctx.beginPath(); ctx.ellipse(-8, 4, 5.5, 7, 0, 0, Math.PI * 2); ctx.fill();
+  const irisGrad2 = ctx.createRadialGradient(8, 4, 1, 8, 4, 6);
+  irisGrad2.addColorStop(0, '#8b5a2b');
+  irisGrad2.addColorStop(0.7, '#5c3317');
+  irisGrad2.addColorStop(1, '#3a1a08');
+  ctx.fillStyle = irisGrad2;
+  ctx.beginPath(); ctx.ellipse(8, 4, 5.5, 7, 0, 0, Math.PI * 2); ctx.fill();
+  // Pupils
+  ctx.fillStyle = '#0a0500';
+  ctx.beginPath(); ctx.arc(-8, 5, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(8, 5, 3, 0, Math.PI * 2); ctx.fill();
+  // Eye shine (big + small)
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(-6, 1, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(10, 1, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(-9, 7, 1.2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(7, 7, 1.2, 0, Math.PI * 2); ctx.fill();
+  // Eyelashes
+  ctx.strokeStyle = '#2a1508'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(-8, 3, 7.5, -2.8, -0.3); ctx.stroke();
+  ctx.beginPath(); ctx.arc(8, 3, 7.5, -2.8, -0.3); ctx.stroke();
+
+  // Eyebrows
+  ctx.strokeStyle = '#4a2a10'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-13, -8); ctx.quadraticCurveTo(-8, -11, -3, -8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(3, -8); ctx.quadraticCurveTo(8, -11, 13, -8); ctx.stroke();
+
+  // Blush
+  ctx.fillStyle = 'rgba(255, 130, 130, 0.25)';
+  ctx.beginPath(); ctx.ellipse(-14, 12, 6, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(14, 12, 6, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Mouth (small smile or laughing)
+  ctx.strokeStyle = '#9b5030'; ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+  if (laughTimer > 0) {
+    // Big open laugh
+    ctx.fillStyle = '#9b5030';
+    ctx.beginPath(); ctx.ellipse(0, 16, 7, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.ellipse(0, 14, 4, 2, 0, 0, Math.PI); ctx.fill();
+    // Squinted happy eyes
+    ctx.fillStyle = '#e2bb92';
+    ctx.beginPath(); ctx.ellipse(-8, 3, 8, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(8, 3, 8, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#2a1508'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(-8, 4, 6, 0.3, Math.PI - 0.3); ctx.stroke();
+    ctx.beginPath(); ctx.arc(8, 4, 6, 0.3, Math.PI - 0.3); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(0, 15, 5, 0.3, Math.PI - 0.3); ctx.stroke();
+  }
+
+  // Nose hint
+  ctx.fillStyle = 'rgba(200,150,100,0.3)';
+  ctx.beginPath(); ctx.arc(0, 10, 2, 0, Math.PI * 2); ctx.fill();
+
+  ctx.restore();
+}
+
+function drawParticles() {
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.25; p.life--;
+    const alpha = p.life / p.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    if (p.type === 'spark') {
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.5);
+      ctx.restore();
+      p.rot += p.vr;
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawStars() {
+  stars = stars.filter(s => s.life > 0);
+  stars.forEach(s => {
+    s.y -= 1.2; s.x += Math.sin(s.life * 0.15) * 1.2; s.life--;
+    ctx.globalAlpha = s.life / s.maxLife;
+    ctx.font = `${s.size}px serif`;
+    ctx.fillText(s.char, s.x, s.y);
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawStars() {
+  stars = stars.filter(s => s.life > 0);
+  stars.forEach(s => {
+    s.y -= 1.2; s.x += Math.sin(s.life * 0.15) * 1.2; s.life--;
+    ctx.globalAlpha = s.life / s.maxLife;
+    ctx.font = `${s.size}px serif`;
+    ctx.fillText(s.char, s.x, s.y);
+    ctx.globalAlpha = 1;
+  });
+}
+
+// --- MOUSE ANIMATION ---
+let mouse = { state: 'hidden', x: 0, y: 0, targetX: 0, timer: 0, dir: 1, earPerk: 0 };
+let mouseDelay = 300 + Math.random() * 400;
+
+function updateMouse() {
+  mouseDelay--;
+  if (mouse.state === 'hidden' && mouseDelay <= 0) {
+    // Spawn from left or right corner
+    mouse.dir = Math.random() > 0.5 ? 1 : -1;
+    mouse.x = mouse.dir === 1 ? -20 : W + 20;
+    mouse.y = H - 160 + Math.random() * 20;
+    mouse.targetX = 150 + Math.random() * (W - 300);
+    mouse.state = 'running_in';
+    mouse.earPerk = 0;
+  }
+  if (mouse.state === 'running_in') {
+    const dx = mouse.targetX - mouse.x;
+    mouse.x += Math.sign(dx) * 3.5;
+    mouse.dir = dx > 0 ? 1 : -1;
+    if (Math.abs(dx) < 5) { mouse.state = 'looking'; mouse.timer = 80 + Math.random() * 60; }
+  }
+  if (mouse.state === 'looking') {
+    mouse.timer--;
+    mouse.earPerk = Math.min(1, mouse.earPerk + 0.08);
+    if (mouse.timer <= 0) { mouse.state = 'running_out'; mouse.dir = Math.random() > 0.5 ? 1 : -1; }
+  }
+  if (mouse.state === 'running_out') {
+    mouse.x += mouse.dir * 5;
+    if (mouse.x < -30 || mouse.x > W + 30) { mouse.state = 'hidden'; mouseDelay = 400 + Math.random() * 500; }
+  }
+}
+
+function drawMouse() {
+  if (mouse.state === 'hidden') return;
+  ctx.save();
+  ctx.translate(mouse.x, mouse.y);
+  const flip = mouse.state === 'looking' ? 1 : mouse.dir;
+  ctx.scale(flip, 1);
+
+  // Body
+  ctx.fillStyle = '#8a7060';
+  ctx.beginPath(); ctx.ellipse(0, 0, 14, 9, 0, 0, Math.PI * 2); ctx.fill();
+  // Head
+  ctx.fillStyle = '#8a7060';
+  ctx.beginPath(); ctx.ellipse(12, -3, 8, 7, -0.2, 0, Math.PI * 2); ctx.fill();
+  // Ears
+  const ep = mouse.state === 'looking' ? mouse.earPerk : 0;
+  ctx.fillStyle = '#b09080';
+  ctx.beginPath(); ctx.ellipse(14, -10 - ep * 3, 5, 6 + ep * 2, -0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(9, -9 - ep * 2, 4, 5 + ep * 1.5, 0.2, 0, Math.PI * 2); ctx.fill();
+  // Inner ear
+  ctx.fillStyle = '#e0a0a0';
+  ctx.beginPath(); ctx.ellipse(14, -10 - ep * 3, 2.5, 3 + ep, -0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(9, -9 - ep * 2, 2, 2.5 + ep * 0.5, 0.2, 0, Math.PI * 2); ctx.fill();
+  // Eye
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.arc(16, -3, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(16.5, -3.5, 0.8, 0, Math.PI * 2); ctx.fill();
+  // Nose
+  ctx.fillStyle = '#ff9999';
+  ctx.beginPath(); ctx.ellipse(20, -2, 2, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+  // Whiskers
+  ctx.strokeStyle = '#aaa'; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(19, -1); ctx.lineTo(27, -3); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(19, 0); ctx.lineTo(27, 1); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(19, -2); ctx.lineTo(26, -5); ctx.stroke();
+  // Tail
+  ctx.strokeStyle = '#8a7060'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-14, 0);
+  ctx.quadraticCurveTo(-22, -8, -18, -14);
+  ctx.stroke();
+  // Legs (little stubs, animated if running)
+  ctx.fillStyle = '#7a6050';
+  const legAnim = (mouse.state === 'running_in' || mouse.state === 'running_out') ? Math.sin(Date.now() * 0.03) * 3 : 0;
+  ctx.fillRect(-6, 6, 4, 5 + legAnim); ctx.fillRect(2, 6, 4, 5 - legAnim);
+  ctx.fillRect(8, 5, 3, 4 + legAnim); ctx.fillRect(-10, 5, 3, 4 - legAnim);
+
+  ctx.restore();
+}
+
+function spawnHitEffect(x, y) {
+  for (let i = 0; i < 15; i++) {
+    particles.push({
+      x, y, vx: (Math.random() - 0.5) * 7, vy: -Math.random() * 5 - 2,
+      life: 30 + Math.random() * 20, maxLife: 50, type: 'chip',
+      color: ['#d4a04a', '#8b6914', '#c0922a', '#b8883a', '#a07828'][Math.floor(Math.random() * 5)],
+      size: 3 + Math.random() * 5, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3
+    });
+  }
+  for (let i = 0; i < 6; i++) {
+    particles.push({
+      x: x + (Math.random() - 0.5) * 20, y: y - 10, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 4,
+      life: 12 + Math.random() * 8, maxLife: 20, type: 'spark',
+      color: '#fff', size: 1.5 + Math.random() * 2, rot: 0, vr: 0
+    });
+  }
+  const emojis = ['⭐', '✨', '💥', '✊'];
+  for (let i = 0; i < 4; i++) {
+    stars.push({ x: x + (Math.random() - 0.5) * 50, y: y - 30, life: 45, maxLife: 45,
+      size: 18 + Math.random() * 14, char: emojis[i] });
+  }
+}
+
+// --- SOUND (Web Audio API) ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSwing() {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(150, audioCtx.currentTime + 0.15);
+  gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+  osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+}
+
+function playHit() {
+  // Impact noise burst
+  const bufferSize = audioCtx.sampleRate * 0.1;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15));
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = 800;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+  noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+  noise.start(); noise.stop(audioCtx.currentTime + 0.1);
+  // Metallic ping
+  const osc = audioCtx.createOscillator();
+  const g2 = audioCtx.createGain();
+  osc.connect(g2); g2.connect(audioCtx.destination);
+  osc.type = 'square'; osc.frequency.value = 1800;
+  g2.gain.setValueAtTime(0.08, audioCtx.currentTime);
+  g2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+  osc.start(); osc.stop(audioCtx.currentTime + 0.08);
+}
+
+// Laugh sound
+function playLaugh() {
+  const t = audioCtx.currentTime;
+  const notes = [500, 600, 500, 700, 600, 800];
+  notes.forEach((f, i) => {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sine'; osc.frequency.value = f;
+    osc.connect(g); g.connect(audioCtx.destination);
+    const start = t + i * 0.09;
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(0.12, start + 0.02);
+    g.gain.linearRampToValueAtTime(0, start + 0.08);
+    osc.start(start); osc.stop(start + 0.08);
+  });
+}
+
+// Background music - bouncy workshop tune
+let musicStarted = false;
+function startMusic() {
+  if (musicStarted) return;
+  musicStarted = true;
+  const bpm = 150;
+  const beat = 60 / bpm;
+  const master = audioCtx.createGain();
+  master.gain.value = 0.10;
+  master.connect(audioCtx.destination);
+
+  const noteMap = {'C':0,'D':2,'E':4,'F':5,'G':7,'A':9,'B':11};
+  function freq(n) { return 440 * Math.pow(2, (noteMap[n[0]] - 9) / 12 + (parseInt(n.slice(-1)) - 4)); }
+
+  const melody = ['E5','E5','F5','G5','G5','F5','E5','D5','C5','C5','D5','E5','E5','D5','D5','_',
+                  'E5','E5','F5','G5','G5','F5','E5','D5','C5','C5','D5','E5','D5','C5','C5','_'];
+  const bass =   ['C3','G3','C3','G3','F3','C3','F3','C3','G3','D3','G3','D3','C3','G3','C3','G3',
+                  'C3','G3','C3','G3','F3','C3','F3','C3','G3','D3','G3','D3','C3','G2','C3','G3'];
+
+  function playLoop() {
+    const t0 = audioCtx.currentTime + 0.05;
+    // Melody
+    melody.forEach((n, i) => {
+      if (n === '_') return;
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'triangle'; osc.frequency.value = freq(n);
+      osc.connect(g); g.connect(master);
+      const t = t0 + i * beat;
+      g.gain.setValueAtTime(0.5, t);
+      g.gain.setValueAtTime(0.5, t + beat * 0.7);
+      g.gain.linearRampToValueAtTime(0, t + beat * 0.9);
+      osc.start(t); osc.stop(t + beat);
+    });
+    // Bass
+    bass.forEach((n, i) => {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'square'; osc.frequency.value = freq(n);
+      osc.connect(g); g.connect(master);
+      const t = t0 + i * beat;
+      g.gain.setValueAtTime(0.25, t);
+      g.gain.linearRampToValueAtTime(0, t + beat * 0.5);
+      osc.start(t); osc.stop(t + beat);
+    });
+    // Hi-hat
+    for (let i = 0; i < melody.length; i++) {
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.02, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let s = 0; s < d.length; s++) d[s] = (Math.random() * 2 - 1) * Math.exp(-s / (d.length * 0.15));
+      const src = audioCtx.createBufferSource(); src.buffer = buf;
+      const hp = audioCtx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 8000;
+      const g = audioCtx.createGain(); g.gain.value = i % 2 === 0 ? 0.6 : 0.3;
+      src.connect(hp); hp.connect(g); g.connect(master);
+      src.start(t0 + i * beat);
+    }
+    setTimeout(playLoop, melody.length * beat * 1000);
+  }
+  playLoop();
+}
+
+// Face expression state
+let laughTimer = 0;
+
+// --- GAME LOGIC ---
+
+function hitNail() {
+  if (hammerState !== 'ready') return;
+  hammerState = 'swinging';
+  audioCtx.resume(); startMusic(); playSwing();
+}
+
+function update() {
+  updateMouse();
+  // Move nail
+  if (!nail.hit) {
+    nail.x += nail.speed * nail.dir;
+    if (nail.x > NAIL_ZONE_RIGHT) { nail.x = NAIL_ZONE_RIGHT; nail.dir = -1; }
+    if (nail.x < NAIL_ZONE_LEFT) { nail.x = NAIL_ZONE_LEFT; nail.dir = 1; }
+  }
+
+  // Hammer animation
+  if (hammerState === 'swinging') {
+    hammerAngle += 0.12;
+    if (hammerAngle >= 1) {
+      hammerAngle = 1;
+      hammerState = 'returning';
+      // Check hit at bottom of swing
+      // Hammer tip position: character at W/2, arm at +18, swing brings tip down
+      // Approximate hit zone: a region around W/2 + offset
+      const hammerTipX = W / 2 + 18 + Math.sin(0.6) * 93; // approx x at full swing
+      const dist = Math.abs(hammerTipX - nail.x);
+      if (dist < 50 && !nail.hit && nail.sunk < nail.maxSunk) {
+        nail.sunk++;
+        playHit();
+        spawnHitEffect(nail.x, NAIL_Y + nail.sunk * 8 - 30);
+        if (nail.sunk >= nail.maxSunk) {
+          nail.hit = true;
+          score++;
+          playLaugh(); laughTimer = 90;
+          document.getElementById('score').textContent = score;
+          if (score > highscore) {
+            highscore = score;
+            localStorage.setItem('nagelHighscore2', highscore);
+            document.getElementById('highscore').textContent = highscore;
+          }
+          setTimeout(resetNail, 900);
+        }
+      }
+    }
+  } else if (hammerState === 'returning') {
+    hammerAngle -= 0.06;
+    if (hammerAngle <= 0) {
+      hammerAngle = 0;
+      hammerState = 'ready';
+    }
+  }
+  if (laughTimer > 0) laughTimer--;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawMouse();
+  drawPlank();
+  drawNail();
+  drawCharacter();
+  drawParticles();
+  drawStars();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); hitNail(); }
+});
+canvas.addEventListener('click', () => hitNail());
+canvas.addEventListener('touchstart', e => { e.preventDefault(); hitNail(); });
+
+resetNail();
+loop();
+</script>
+</body>
+</html>
