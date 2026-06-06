@@ -172,7 +172,14 @@ function spawnObstacle() {
 }
 
 function spawnCoin() {
-  const lane = Math.floor(Math.random() * LANES);
+  // Finde eine Spur die gerade frei ist (kein Hindernis in der Nähe)
+  const freeLanes = [];
+  for (let l = 0; l < LANES; l++) {
+    const blocked = obstacles.some(o => o.lane === l && o.y < 80);
+    if (!blocked) freeLanes.push(l);
+  }
+  if (freeLanes.length === 0) return;
+  const lane = freeLanes[Math.floor(Math.random() * freeLanes.length)];
   coins.push({ lane, y: -30 });
 }
 
