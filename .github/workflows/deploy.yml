@@ -17,3 +17,4 @@ jobs:
           aws-region: eu-central-1
 
       - run: aws s3 sync . s3://spiele-sammlung-hoffmann --exclude ".git/*" --exclude ".github/*" --delete
+      - run: aws cloudfront create-invalidation --distribution-id EQ49S30206GZB --paths "/*"
