@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>💐 Blumenstrauß-Wurf</title>
+<style>
+* { margin: 0; padding: 0; }
+body { overflow: hidden; background: #1a2a1a; display: flex; justify-content: center; align-items: center; height: 100dvh; touch-action: none; font-family: 'Comic Sans MS', cursive; }
+canvas { display: block; max-width: 100vw; max-height: 100dvh; }
+#ui { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 1.5rem; font-size: clamp(1rem, 4vw, 1.3rem); color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); z-index: 10; }
+#msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: clamp(1.2rem, 5vw, 2rem); color: #fff; text-shadow: 2px 2px 6px rgba(0,0,0,0.9); pointer-events: none; opacity: 0; transition: opacity 0.3s; text-align: center; z-index: 15; }
+#hint { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); font-size: clamp(0.8rem, 3vw, 1rem); color: #ffd700; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); animation: pulse 2s infinite; text-align: center; z-index: 10; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+.copyright { position: absolute; bottom: 5px; right: 10px; font-size: 0.7rem; color: rgba(255,255,255,0.3); z-index: 10; }
+</style>
+</head>
+<body>
+<div id="ui">
+<span>💐 Würfe: <span id="throws">0</span>/3</span>
+<span>⭐ Punkte: <span id="score">0</span></span>
+</div>
+<div id="msg"></div>
+<div id="hint">Maus/Touch auf Ziel zielen und loslassen zum Werfen!</div>
+<canvas id="c"></canvas>
+<div class="copyright">© Caroline Hoffmann</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width = 800;
+const H = canvas.height = 550;
+
+function resize() {
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.style.width = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+}
+resize(); window.addEventListener('resize', resize);
+
+// Audio
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let musicStarted = false;
+
+function playCheer() {
+  // Crowd noise burst
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.8, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.3 * (1 - i/d.length);
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const bp = audioCtx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2000; bp.Q.value = 0.5;
+  const g = audioCtx.createGain(); g.gain.value = 0.15;
+  src.connect(bp); bp.connect(g); g.connect(audioCtx.destination); src.start();
+}
+
+function playCatch() {
+  const t = audioCtx.currentTime;
+  [660, 880, 1100].forEach((f, i) => {
+    const osc = audioCtx.createOscillator(); const g = audioCtx.createGain();
+    osc.type = 'sine'; osc.frequency.value = f;
+    g.gain.setValueAtTime(0.12, t + i*0.1); g.gain.linearRampToValueAtTime(0, t + i*0.1 + 0.1);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(t + i*0.1); osc.stop(t + i*0.1 + 0.12);
+  });
+}
+
+function playYay() {
+  const t = audioCtx.currentTime;
+  [523, 659, 784, 1047].forEach((f, i) => {
+    const osc = audioCtx.createOscillator(); const g = audioCtx.createGain();
+    osc.type = 'triangle'; osc.frequency.value = f;
+    g.gain.setValueAtTime(0.1, t + i*0.12); g.gain.linearRampToValueAtTime(0, t + i*0.12 + 0.2);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(t + i*0.12); osc.stop(t + i*0.12 + 0.25);
+  });
+}
+
+function startMusic() {
+  if (musicStarted) return;
+  musicStarted = true; audioCtx.resume();
+  const master = audioCtx.createGain(); master.gain.value = 0.06; master.connect(audioCtx.destination);
+  const noteMap = {'C':0,'D':2,'E':4,'F':5,'G':7,'A':9,'B':11};
+  function freq(n) { return 440 * Math.pow(2, (noteMap[n[0]] - 9) / 12 + (parseInt(n.slice(-1)) - 4)); }
+  const melody = ['C4','E4','G4','C5','G4','E4','C4','D4','F4','A4','D5','A4','F4','D4','E4','G4'];
+  let nextTime = audioCtx.currentTime;
+  const beat = 0.3;
+  function loop() {
+    while (nextTime < audioCtx.currentTime + 1) {
+      melody.forEach((n, i) => {
+        const osc = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        osc.type = 'triangle'; osc.frequency.value = freq(n);
+        const t = nextTime + i * beat;
+        g.gain.setValueAtTime(0.5, t); g.gain.linearRampToValueAtTime(0, t + beat * 0.8);
+        osc.connect(g); g.connect(master); osc.start(t); osc.stop(t + beat);
+      });
+      nextTime += melody.length * beat;
+    }
+    setTimeout(loop, 500);
+  }
+  loop();
+  // Ambient crowd murmur
+  const crowdBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+  const cd = crowdBuf.getChannelData(0);
+  for (let i = 0; i < cd.length; i++) cd[i] = (Math.random() * 2 - 1);
+  const crowd = audioCtx.createBufferSource(); crowd.buffer = crowdBuf; crowd.loop = true;
+  const cbp = audioCtx.createBiquadFilter(); cbp.type = 'bandpass'; cbp.frequency.value = 1500; cbp.Q.value = 0.3;
+  const cg = audioCtx.createGain(); cg.gain.value = 0.025;
+  crowd.connect(cbp); cbp.connect(cg); cg.connect(audioCtx.destination); crowd.start();
+}
+
+// Game state
+const podiumX = [150, 80, 220]; // positions for 1st, 2nd, 3rd
+const podiumY = [280, 310, 310];
+let currentThrower = 0; // 0,1,2
+let throwsLeft = 3;
+let score = 0;
+let bouquet = null; // {x, y, vx, vy} when in air
+let aiming = false;
+let aimX = 0, aimY = 0;
+let state = 'aim'; // aim, flying, caught, passing, celebrate, done
+let caughtBy = ''; // 'man','woman','child'
+let passState = 0; // 0: man->woman, 1: woman->child
+let passProgress = 0;
+let celebrateTimer = 0;
+let childHappy = 0;
+
+// Family positions (in audience, right side)
+const manPos = { x: 500, y: 340 };
+const womanPos = { x: 570, y: 350 };
+const childPos = { x: 630, y: 370 };
+
+// Catch zones (based on arm reach)
+function canCatch(bx, by, person) {
+  const p = person === 'man' ? manPos : person === 'woman' ? womanPos : childPos;
+  const reach = person === 'man' ? 55 : person === 'woman' ? 45 : 40;
+  return Math.abs(bx - p.x) < reach && Math.abs(by - (p.y - 40)) < reach;
+}
+
+function showMsg(text, duration) {
+  const el = document.getElementById('msg');
+  el.textContent = text; el.style.opacity = 1;
+  setTimeout(() => el.style.opacity = 0, duration || 2000);
+}
+
+// Drawing functions
+function drawBackground() {
+  // Sky
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#4a90d9'); sky.addColorStop(0.6, '#7bb3e0'); sky.addColorStop(1, '#2d5a27');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  // Ground/grass
+  ctx.fillStyle = '#3a7a2a'; ctx.fillRect(0, H * 0.6, W, H * 0.4);
+  // Stadium feel - crowd silhouettes in background
+  ctx.fillStyle = '#2a4a1a';
+  for (let i = 0; i < 60; i++) {
+    const bx = 300 + (i % 20) * 25 + Math.sin(i) * 10;
+    const by = 180 + Math.floor(i / 20) * 30 + Math.sin(i * 2) * 5;
+    if (bx > 280 && bx < W - 20) {
+      // Head
+      ctx.fillStyle = `hsl(${20 + Math.random()*30}, ${20+Math.random()*20}%, ${30+Math.random()*20}%)`;
+      ctx.beginPath(); ctx.arc(bx, by, 8, 0, Math.PI * 2); ctx.fill();
+      // Body
+      ctx.fillStyle = `hsl(${Math.random()*360}, ${40+Math.random()*30}%, ${30+Math.random()*25}%)`;
+      ctx.fillRect(bx - 6, by + 8, 12, 20);
+    }
+  }
+}
+
+function drawPodium() {
+  // Podium blocks
+  const blocks = [{x: 120, w: 70, h: 80, label: '1'}, {x: 50, w: 70, h: 55, label: '2'}, {x: 190, w: 70, h: 55, label: '3'}];
+  blocks.forEach(b => {
+    const grad = ctx.createLinearGradient(b.x, H - b.h, b.x, H);
+    grad.addColorStop(0, '#daa520'); grad.addColorStop(0.5, '#ffd700'); grad.addColorStop(1, '#b8860b');
+    ctx.fillStyle = grad;
+    ctx.fillRect(b.x, H - b.h, b.w, b.h);
+    ctx.strokeStyle = '#8b6508'; ctx.lineWidth = 2; ctx.strokeRect(b.x, H - b.h, b.w, b.h);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(b.label, b.x + b.w/2, H - b.h/2 + 7);
+  });
+}
+
+function drawWinner(x, baseY, index) {
+  const y = baseY - 60;
+  const isActive = index === currentThrower && state === 'aim';
+  // Body
+  ctx.fillStyle = '#1565C0';
+  ctx.fillRect(x - 10, y, 20, 35);
+  // Head
+  ctx.fillStyle = '#e8b87a';
+  ctx.beginPath(); ctx.arc(x, y - 10, 12, 0, Math.PI * 2); ctx.fill();
+  // Hair (ponytail)
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.arc(x, y - 14, 10, Math.PI, 0); ctx.fill();
+  ctx.fillRect(x + 5, y - 14, 4, 15);
+  // Medal
+  const medalColors = ['#ffd700', '#c0c0c0', '#cd7f32'];
+  ctx.fillStyle = medalColors[index];
+  ctx.beginPath(); ctx.arc(x, y + 10, 6, 0, Math.PI * 2); ctx.fill();
+  // Bouquet in hand (if hasn't thrown yet)
+  if (index >= currentThrower && state !== 'done') {
+    drawBouquetSmall(x + 12, y + 5);
+  }
+  // Highlight active thrower
+  if (isActive) {
+    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.arc(x, y, 35, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function drawBouquetSmall(x, y) {
+  ctx.fillStyle = '#228B22'; ctx.fillRect(x - 2, y, 4, 12);
+  const colors = ['#ff4081','#ff6f00','#e91e63','#ffeb3b','#f44336'];
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = colors[i];
+    const angle = (i / 5) * Math.PI * 2;
+    ctx.beginPath(); ctx.arc(x + Math.cos(angle) * 6, y - 3 + Math.sin(angle) * 4, 4, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawBouquetFlying(x, y) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(Date.now() * 0.005);
+  ctx.fillStyle = '#228B22'; ctx.fillRect(-2, -2, 4, 16);
+  const colors = ['#ff4081','#ff6f00','#e91e63','#ffeb3b','#f44336','#9c27b0'];
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = colors[i];
+    const angle = (i / 6) * Math.PI * 2;
+    ctx.beginPath(); ctx.arc(Math.cos(angle) * 8, Math.sin(angle) * 6, 5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawMan() {
+  const x = manPos.x, y = manPos.y;
+  // Trench coat body
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(x - 14, y - 30, 28, 55);
+  // Coat flare
+  ctx.beginPath(); ctx.moveTo(x - 14, y + 25); ctx.lineTo(x - 18, y + 40); ctx.lineTo(x + 18, y + 40); ctx.lineTo(x + 14, y + 25); ctx.fill();
+  // Head
+  ctx.fillStyle = '#e0b88a';
+  ctx.beginPath(); ctx.arc(x, y - 42, 13, 0, Math.PI * 2); ctx.fill();
+  // Hair (dunkelblond)
+  ctx.fillStyle = '#8b7335';
+  ctx.beginPath(); ctx.arc(x, y - 47, 11, Math.PI, 0); ctx.fill();
+  ctx.fillRect(x - 10, y - 48, 20, 5);
+  // Sunglasses
+  ctx.fillStyle = '#111';
+  ctx.fillRect(x - 10, y - 45, 8, 5);
+  ctx.fillRect(x + 2, y - 45, 8, 5);
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x - 2, y - 43); ctx.lineTo(x + 2, y - 43); ctx.stroke();
+  // Arms (reaching if catching)
+  ctx.fillStyle = '#1a1a1a';
+  if (state === 'flying' || (state === 'caught' && caughtBy === 'man')) {
+    ctx.fillRect(x - 20, y - 25, 8, 30); ctx.fillRect(x + 12, y - 25, 8, 30);
+  } else {
+    ctx.fillRect(x - 18, y - 20, 7, 25); ctx.fillRect(x + 11, y - 20, 7, 25);
+  }
+  // Bouquet if holding
+  if (state === 'passing' && passState === 0 && caughtBy === 'man') {
+    const progress = passProgress;
+    const bx = x + (womanPos.x - x) * progress;
+    const by = (y - 20) + ((womanPos.y - 30) - (y - 20)) * progress;
+    drawBouquetSmall(bx, by);
+  }
+}
+
+function drawWoman() {
+  const x = womanPos.x, y = womanPos.y;
+  // Body/dress
+  ctx.fillStyle = '#c62828';
+  ctx.fillRect(x - 12, y - 25, 24, 40);
+  ctx.beginPath(); ctx.moveTo(x - 12, y + 15); ctx.lineTo(x - 16, y + 40); ctx.lineTo(x + 16, y + 40); ctx.lineTo(x + 12, y + 15); ctx.fill();
+  // Head (darker skin)
+  ctx.fillStyle = '#b07840';
+  ctx.beginPath(); ctx.arc(x, y - 37, 12, 0, Math.PI * 2); ctx.fill();
+  // Hair (black, long)
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.arc(x, y - 41, 11, Math.PI, 0.1); ctx.fill();
+  ctx.fillRect(x - 10, y - 40, 3, 25);
+  ctx.fillRect(x + 7, y - 40, 3, 25);
+  // Arms
+  ctx.fillStyle = '#b07840';
+  if (state === 'flying' || (state === 'caught' && caughtBy === 'woman')) {
+    ctx.fillRect(x - 17, y - 22, 6, 25); ctx.fillRect(x + 11, y - 22, 6, 25);
+  } else {
+    ctx.fillRect(x - 15, y - 18, 5, 22); ctx.fillRect(x + 10, y - 18, 5, 22);
+  }
+  // Bouquet if passing to child
+  if (state === 'passing' && ((passState === 1) || (passState === 0 && caughtBy === 'woman'))) {
+    if (passState === 1 || caughtBy === 'woman') {
+      const fromX = x, fromY = y - 20;
+      const toX = childPos.x, toY = childPos.y - 25;
+      const p = (caughtBy === 'woman' && passState === 0) ? passProgress : passProgress;
+      const bx = fromX + (toX - fromX) * p;
+      const by = fromY + (toY - fromY) * p;
+      drawBouquetSmall(bx, by);
+    }
+  }
+}
+
+function drawChild() {
+  const x = childPos.x, y = childPos.y;
+  // Body (lighter skin, beige cardigan, white skirt)
+  ctx.fillStyle = '#d4b896';
+  ctx.fillRect(x - 9, y - 20, 18, 25);
+  // White skirt
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.moveTo(x - 9, y + 5); ctx.lineTo(x - 12, y + 28); ctx.lineTo(x + 12, y + 28); ctx.lineTo(x + 9, y + 5); ctx.closePath(); ctx.fill();
+  // Head
+  ctx.fillStyle = '#e2bb92';
+  ctx.beginPath(); ctx.arc(x, y - 30, 10, 0, Math.PI * 2); ctx.fill();
+  // Hair (dark brown, long)
+  ctx.fillStyle = '#3d2314';
+  ctx.beginPath(); ctx.arc(x, y - 34, 9, Math.PI, 0.1); ctx.fill();
+  ctx.fillRect(x - 8, y - 34, 3, 20);
+  ctx.fillRect(x + 5, y - 34, 3, 20);
+  // Eyes
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.arc(x - 3, y - 31, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 3, y - 31, 2, 0, Math.PI * 2); ctx.fill();
+  // Happy face when celebrating
+  if (childHappy > 0) {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(x - 3, y - 31, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 3, y - 31, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(x - 3, y - 31, 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 3, y - 31, 1.5, 0, Math.PI * 2); ctx.fill();
+    // Big smile
+    ctx.strokeStyle = '#c0503a'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y - 26, 5, 0.2, Math.PI - 0.2); ctx.stroke();
+    // Blush
+    ctx.fillStyle = 'rgba(255,130,130,0.4)';
+    ctx.beginPath(); ctx.ellipse(x - 7, y - 27, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x + 7, y - 27, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+    // Bouquet held
+    drawBouquetSmall(x + 10, y - 15);
+  }
+  // Arms
+  ctx.fillStyle = '#e2bb92';
+  if (state === 'flying' || childHappy > 0) {
+    ctx.fillRect(x - 13, y - 18, 5, 18); ctx.fillRect(x + 8, y - 18, 5, 18);
+  } else {
+    ctx.fillRect(x - 12, y - 15, 4, 16); ctx.fillRect(x + 8, y - 15, 4, 16);
+  }
+}
+
+function drawAimLine() {
+  if (!aiming || state !== 'aim') return;
+  const thrower = currentThrower;
+  const sx = podiumX[thrower] + 15;
+  const sy = podiumY[thrower] - 60;
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2; ctx.setLineDash([6,6]);
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(aimX, aimY); ctx.stroke();
+  ctx.setLineDash([]);
+  // Target circle
+  ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(aimX, aimY, 15, 0, Math.PI * 2); ctx.stroke();
+}
+
+// Game logic
+function throwBouquet(targetX, targetY) {
+  if (state !== 'aim') return;
+  startMusic();
+  const sx = podiumX[currentThrower] + 15;
+  const sy = podiumY[currentThrower] - 60;
+  // Calculate velocity to reach target in ~40 frames
+  const frames = 40;
+  const gravity = 0.15;
+  bouquet = {
+    x: sx, y: sy,
+    vx: (targetX - sx) / frames,
+    vy: (targetY - sy) / frames - (gravity * frames) / 2
+  };
+  state = 'flying';
+  playCheer();
+}
+
+function update() {
+  if (state === 'flying' && bouquet) {
+    bouquet.x += bouquet.vx;
+    bouquet.y += bouquet.vy;
+    bouquet.vy += 0.15;
+    // Check catch - man first (closest), then woman, then child
+    if (canCatch(bouquet.x, bouquet.y, 'man')) {
+      caughtBy = 'man'; state = 'caught'; playCatch();
+      setTimeout(() => { state = 'passing'; passState = 0; passProgress = 0; }, 600);
+    } else if (canCatch(bouquet.x, bouquet.y, 'woman')) {
+      caughtBy = 'woman'; state = 'caught'; playCatch();
+      setTimeout(() => { state = 'passing'; passState = 0; passProgress = 0; }, 600);
+    } else if (canCatch(bouquet.x, bouquet.y, 'child')) {
+      caughtBy = 'child'; state = 'caught';
+      score += 30; playYay();
+      showMsg('🎉 Direkt gefangen! +30 Punkte!', 2000);
+      childHappy = 180;
+      setTimeout(nextThrow, 2500);
+    } else if (bouquet.y > H + 20 || bouquet.x > W + 20) {
+      // Missed everyone
+      showMsg('😅 Daneben!', 1500);
+      setTimeout(nextThrow, 1800);
+    }
+  }
+
+  if (state === 'passing') {
+    passProgress += 0.025;
+    if (passProgress >= 1) {
+      if (caughtBy === 'man' && passState === 0) {
+        // Man passes to woman
+        passState = 1; passProgress = 0;
+        score += 10;
+        showMsg('Mann fängt → gibt weiter! +10', 1500);
+      } else {
+        // Woman passes to child (either from man or direct)
+        if (caughtBy === 'woman' && passState === 0) {
+          score += 20;
+          showMsg('Frau fängt → gibt weiter! +20', 1500);
+        } else if (passState === 1) {
+          // Already scored from man catch
+        }
+        childHappy = 180; playYay();
+        setTimeout(nextThrow, 2000);
+        state = 'celebrate';
+      }
+    }
+  }
+
+  if (childHappy > 0) childHappy--;
+  document.getElementById('score').textContent = score;
+}
+
+function nextThrow() {
+  currentThrower++;
+  throwsLeft--;
+  document.getElementById('throws').textContent = currentThrower;
+  if (currentThrower >= 3) {
+    state = 'done';
+    showMsg(`🏆 Fertig! ${score} Punkte!`, 5000);
+    setTimeout(() => { if(confirm(`${score} Punkte! Nochmal?`)) restart(); }, 3000);
+  } else {
+    state = 'aim';
+    bouquet = null;
+  }
+}
+
+function restart() {
+  currentThrower = 0; throwsLeft = 3; score = 0; state = 'aim';
+  bouquet = null; childHappy = 0; caughtBy = '';
+  document.getElementById('throws').textContent = '0';
+  document.getElementById('score').textContent = '0';
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawPodium();
+  // Winners
+  for (let i = 0; i < 3; i++) drawWinner(podiumX[i] + 35, podiumY[i] + (i === 0 ? -80 : -55), i);
+  // Family
+  drawMan(); drawWoman(); drawChild();
+  // Flying bouquet
+  if (state === 'flying' && bouquet) drawBouquetFlying(bouquet.x, bouquet.y);
+  // Aim line
+  drawAimLine();
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+// Input
+function getCanvasPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width, scaleY = H / rect.height;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+}
+
+canvas.addEventListener('mousedown', e => { aiming = true; const p = getCanvasPos(e); aimX = p.x; aimY = p.y; });
+canvas.addEventListener('mousemove', e => { if (aiming) { const p = getCanvasPos(e); aimX = p.x; aimY = p.y; } });
+canvas.addEventListener('mouseup', e => { if (aiming) { aiming = false; throwBouquet(aimX, aimY); } });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); aiming = true; const p = getCanvasPos(e); aimX = p.x; aimY = p.y; });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); if (aiming) { const p = getCanvasPos(e); aimX = p.x; aimY = p.y; } });
+canvas.addEventListener('touchend', e => { e.preventDefault(); if (aiming) { aiming = false; throwBouquet(aimX, aimY); } });
+
+loop();
+</script>
+</body>
+</html>
