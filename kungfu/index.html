@@ -164,11 +164,14 @@ function doAttack(attacker,defender,type){
   if(attacker.actionTimer>0)return;
   const charA=attacker===player?CHARS[playerChar]:CHARS[enemyChar];
   let dmg=0,range=80;
-  if(type==='punch'){dmg=charA.power;attacker.actionTimer=20;playPunch();range=70;}
-  else if(type==='kick'){dmg=charA.power+3;attacker.actionTimer=28;playKick();range=85;}
-  else if(type==='uppercut'){dmg=charA.power+6;attacker.actionTimer=35;playUppercut();range=65;}
+  if(type==='punch'){dmg=charA.power;attacker.actionTimer=25;playPunch();range=70;}
+  else if(type==='kick'){dmg=charA.power+3;attacker.actionTimer=38;playKick();range=95;}
+  else if(type==='uppercut'){dmg=charA.power+6;attacker.actionTimer=42;playUppercut();range=75;}
   else if(type==='block'){attacker.actionTimer=25;playBlock();attacker.action='block';return;}
   attacker.action=type;
+  // Lunge forward on attack
+  attacker.x+=attacker.facing*(type==='uppercut'?20:type==='kick'?15:10);
+  attacker.x=Math.max(40,Math.min(W-40,attacker.x));
   // Check hit
   const dist=Math.abs(attacker.x-defender.x);
   setTimeout(()=>{
@@ -180,11 +183,14 @@ function doAttack(attacker,defender,type){
       dmg=Math.max(1,dmg-Math.floor(charD.defense*0.3)+Math.floor(Math.random()*4));
       defender.hp=Math.max(0,defender.hp-dmg);
       defender.hits++;
-      shakeTimer=6;
+      defender.x+=attacker.facing*(type==='uppercut'?18:type==='kick'?14:8);
+      defender.x=Math.max(40,Math.min(W-40,defender.x));
+      shakeTimer=type==='uppercut'?10:7;
+      playHit();
       spawnHitParticles(defender.x,defender.y-40);
       if(defender.hp<=0){gameState='ko';koTimer=120;playKO();}
     }
-  },type==='kick'?200:type==='uppercut'?250:150);
+  },type==='kick'?180:type==='uppercut'?220:120);
 }
 
 function spawnHitParticles(x,y){
@@ -255,10 +261,10 @@ function drawFighter(f,charIdx,isPlayer){
 
   // Animation offsets
   let bodyOff=0,armAngle=0,legAngle=0,headOff=0;
-  if(f.action==='punch'&&f.actionTimer>10){armAngle=-1.2;}
-  else if(f.action==='kick'&&f.actionTimer>12){legAngle=1.3;}
-  else if(f.action==='uppercut'&&f.actionTimer>15){armAngle=-1.8;bodyOff=-8;headOff=-5;}
-  else if(f.action==='block'){armAngle=-0.6;}
+  if(f.action==='punch'&&f.actionTimer>8){armAngle=-1.5;bodyOff=4;}
+  else if(f.action==='kick'&&f.actionTimer>10){legAngle=2.0;bodyOff=-3;}
+  else if(f.action==='uppercut'&&f.actionTimer>12){armAngle=-2.2;bodyOff=-14;headOff=-8;}
+  else if(f.action==='block'){armAngle=-0.8;}
   else{armAngle=Math.sin(Date.now()*0.003)*0.1;legAngle=Math.sin(Date.now()*0.004)*0.05;}
 
   // Legs
