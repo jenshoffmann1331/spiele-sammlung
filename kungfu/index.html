@@ -34,7 +34,7 @@ canvas{display:block;max-width:100vw;max-height:100dvh}
 </div>
 </div>
 <canvas id="c"></canvas>
-<div id="controls">A/◀ Punch | S/▼ Kick | D/▶ Uppercut | W/▲ Block | Touch: Links=Punch Mitte=Uppercut Rechts=Kick</div>
+<div id="controls">←→ Bewegen | A Punch | S Kick | D Uppercut | W Block | Touch: Links=Punch Mitte=Uppercut Rechts=Kick</div>
 <div class="copyright">© Caroline Hoffmann</div>
 <script>
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
@@ -431,10 +431,12 @@ function update(){
   else player.action='idle';
   if(enemy.actionTimer>0)enemy.actionTimer--;
   else enemy.action='idle';
-  // Player movement toward enemy
-  const dist=Math.abs(player.x-enemy.x);
-  if(dist>120){player.x+=CHARS[playerChar].speed*player.facing;}
+  // Player movement with arrow keys
+  const spd=CHARS[playerChar].speed+1;
+  if(keys['ArrowLeft'])player.x=Math.max(40,player.x-spd);
+  if(keys['ArrowRight'])player.x=Math.min(W-40,player.x+spd);
   // Enemy faces player
+  const dist=Math.abs(player.x-enemy.x);
   enemy.facing=enemy.x>player.x?-1:1;
   player.facing=player.x<enemy.x?1:-1;
   updateAI();
@@ -476,14 +478,18 @@ function handleAction(type){
   doAttack(player,enemy,type);
 }
 
+// Movement tracking
+const keys={};
 document.addEventListener('keydown',e=>{
+  keys[e.code]=true;
   audioCtx.resume();
-  if(e.code==='KeyA'||e.code==='ArrowLeft')handleAction('punch');
-  else if(e.code==='KeyS'||e.code==='ArrowDown')handleAction('kick');
-  else if(e.code==='KeyD'||e.code==='ArrowRight')handleAction('uppercut');
-  else if(e.code==='KeyW'||e.code==='ArrowUp')handleAction('block');
+  if(e.code==='KeyA')handleAction('punch');
+  else if(e.code==='KeyS')handleAction('kick');
+  else if(e.code==='KeyD')handleAction('uppercut');
+  else if(e.code==='KeyW')handleAction('block');
   else if(e.code==='Space')handleAction('punch');
 });
+document.addEventListener('keyup',e=>{keys[e.code]=false;});
 
 canvas.addEventListener('touchstart',e=>{
   e.preventDefault();audioCtx.resume();
