@@ -150,6 +150,7 @@ let shakeTimer=0;
 let round=1;
 
 function selectChar(i){
+  audioCtx.resume();
   playerChar=i;
   enemyChar=(i+1+Math.floor(Math.random()*(CHARS.length-1)))%CHARS.length;
   player={hp:100,maxHp:100,x:200,y:H-130,action:'idle',actionTimer:0,facing:1,hits:0};
