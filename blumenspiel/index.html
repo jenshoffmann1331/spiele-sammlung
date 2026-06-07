@@ -22,6 +22,11 @@ canvas { display: block; max-width: 100vw; max-height: 100dvh; }
 </div>
 <div id="msg"></div>
 <div id="hint">Maus/Touch auf Ziel zielen und loslassen zum Werfen!</div>
+<div id="gameover" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);color:#fff;padding:2rem 3rem;border-radius:16px;text-align:center;display:none;z-index:20;">
+<h2 style="font-size:1.6rem;margin-bottom:0.5rem;">🏆 Spiel vorbei!</h2>
+<p style="font-size:1.2rem;margin:0.5rem 0;">Punkte: <span id="finalScore">0</span></p>
+<button onclick="restart()" style="margin-top:1rem;padding:0.8rem 2rem;font-size:1.1rem;border:none;border-radius:8px;background:#4CAF50;color:#fff;cursor:pointer;font-family:inherit;">Nochmal!</button>
+</div>
 <canvas id="c"></canvas>
 <div class="copyright">© Caroline Hoffmann</div>
 <script>
@@ -607,8 +612,8 @@ function nextThrow() {
   document.getElementById('throws').textContent = currentThrower;
   if (currentThrower >= 3) {
     state = 'done';
-    showMsg(`🏆 Fertig! ${score} Punkte!`, 5000);
-    setTimeout(() => { if(confirm(`${score} Punkte! Nochmal?`)) restart(); }, 3000);
+    document.getElementById('finalScore').textContent = score;
+    document.getElementById('gameover').style.display = 'block';
   } else {
     state = 'aim';
     bouquet = null;
@@ -620,6 +625,7 @@ function restart() {
   bouquet = null; childHappy = 0; caughtBy = '';
   document.getElementById('throws').textContent = '0';
   document.getElementById('score').textContent = '0';
+  document.getElementById('gameover').style.display = 'none';
 }
 
 function draw() {
