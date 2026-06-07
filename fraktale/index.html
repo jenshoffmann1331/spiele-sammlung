@@ -166,7 +166,7 @@ let tid;
 function scheduleRender() { clearTimeout(tid); tid = setTimeout(render, 80); }
 document.querySelectorAll('.panel input, .panel select').forEach(el => el.addEventListener('input', scheduleRender));
 
-// Pan
+// Pan + Zoom
 let drag = false, dx, dy;
 canvas.addEventListener('mousedown', e => { drag = true; dx = e.clientX; dy = e.clientY; });
 window.addEventListener('mousemove', e => {
@@ -176,12 +176,47 @@ window.addEventListener('mousemove', e => {
   dx = e.clientX; dy = e.clientY; scheduleRender();
 });
 window.addEventListener('mouseup', () => drag = false);
-let tx, ty;
-canvas.addEventListener('touchstart', e => { e.preventDefault(); tx = e.touches[0].clientX; ty = e.touches[0].clientY; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / rect.width;
+  const my = (e.clientY - rect.top) / rect.height;
+  const zs = document.getElementById('zoom');
+  const oldS = 3 / Math.pow(1.04, +zs.value);
+  const wx = (mx - 0.5) * oldS + panX, wy = (my - 0.5) * oldS + panY;
+  zs.value = Math.max(0, Math.min(250, +zs.value + (e.deltaY < 0 ? 5 : -5)));
+  const newS = 3 / Math.pow(1.04, +zs.value);
+  panX = wx - (mx - 0.5) * newS; panY = wy - (my - 0.5) * newS;
+  scheduleRender();
+}, {passive: false});
+canvas.addEventListener('dblclick', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / rect.width, my = (e.clientY - rect.top) / rect.height;
+  const zs = document.getElementById('zoom');
+  const oldS = 3 / Math.pow(1.04, +zs.value);
+  const wx = (mx - 0.5) * oldS + panX, wy = (my - 0.5) * oldS + panY;
+  zs.value = Math.min(250, +zs.value + 15);
+  const newS = 3 / Math.pow(1.04, +zs.value);
+  panX = wx - (mx - 0.5) * newS; panY = wy - (my - 0.5) * newS;
+  scheduleRender();
+});
+let tx, ty, pinchDist = 0;
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault(); tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+  if (e.touches.length === 2) pinchDist = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+});
 canvas.addEventListener('touchmove', e => {
-  e.preventDefault(); const p = getP(); const s = 3 / p.zoom;
-  panX -= (e.touches[0].clientX - tx) / W * s; panY -= (e.touches[0].clientY - ty) / H * s;
-  tx = e.touches[0].clientX; ty = e.touches[0].clientY; scheduleRender();
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    const d = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+    const zs = document.getElementById('zoom');
+    zs.value = Math.max(0, Math.min(250, +zs.value + (d - pinchDist) * 0.3));
+    pinchDist = d; scheduleRender();
+  } else {
+    const p = getP(); const s = 3 / p.zoom;
+    panX -= (e.touches[0].clientX - tx) / W * s; panY -= (e.touches[0].clientY - ty) / H * s;
+    tx = e.touches[0].clientX; ty = e.touches[0].clientY; scheduleRender();
+  }
 });
 
 // Init
