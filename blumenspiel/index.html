@@ -651,10 +651,10 @@ function getCanvasPos(e) {
   return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
 }
 
-canvas.addEventListener('mousedown', e => { aiming = true; const p = getCanvasPos(e); aimX = p.x; aimY = p.y; });
+canvas.addEventListener('mousedown', e => { audioCtx.resume(); aiming = true; const p = getCanvasPos(e); aimX = p.x; aimY = p.y; });
 canvas.addEventListener('mousemove', e => { if (aiming) { const p = getCanvasPos(e); aimX = p.x; aimY = p.y; } });
 canvas.addEventListener('mouseup', e => { if (aiming) { aiming = false; throwBouquet(aimX, aimY); } });
-canvas.addEventListener('touchstart', e => { e.preventDefault(); aiming = true; const p = getCanvasPos(e); aimX = p.x; aimY = p.y; });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); audioCtx.resume(); aiming = true; const p = getCanvasPos(e); aimX = p.x; aimY = p.y; });
 canvas.addEventListener('touchmove', e => { e.preventDefault(); if (aiming) { const p = getCanvasPos(e); aimX = p.x; aimY = p.y; } });
 canvas.addEventListener('touchend', e => { e.preventDefault(); if (aiming) { aiming = false; throwBouquet(aimX, aimY); } });
 
