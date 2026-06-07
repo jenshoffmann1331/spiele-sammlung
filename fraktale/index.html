@@ -3,156 +3,100 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>🌀 Fraktal-Kaleidoskop</title>
+<title>🌀 Mandelbrot Explorer</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#111;font-family:'Segoe UI',system-ui,sans-serif;color:#eee;display:flex;flex-direction:column;height:100dvh}
+body{background:#0a0a1a;font-family:'Segoe UI',system-ui,sans-serif;color:#eee;display:flex;flex-direction:column;height:100dvh;touch-action:none}
 #top{flex:1;display:flex;justify-content:center;align-items:center;padding:0.5rem;min-height:0}
-canvas{border-radius:8px;max-width:100%;max-height:100%;object-fit:contain}
-.panel{background:#1a1a2a;border-top:1px solid #333;padding:0.8rem 1rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.5rem 1.5rem}
-.ctrl{display:flex;align-items:center;gap:0.5rem}
-.ctrl label{font-size:0.75rem;color:#aaa;min-width:60px}
-.ctrl select{flex:1;height:26px;border-radius:4px;border:1px solid #444;background:#252535;color:#eee;font-size:0.75rem;padding:0 4px}
-.ctrl input[type=range]{flex:1;height:4px;-webkit-appearance:none;background:rgba(255,255,255,0.15);border-radius:2px;outline:none}
-.ctrl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#00d2ff;cursor:pointer}
-.ctrl .val{font-size:0.7rem;color:#00d2ff;min-width:32px;text-align:right}
+canvas{border-radius:8px;max-width:100%;max-height:100%}
+.panel{background:rgba(15,15,30,0.98);border-top:1px solid #333;padding:1rem 1.2rem;display:grid;grid-template-columns:1fr 1fr;gap:0.8rem 2rem}
+@media(max-width:500px){.panel{grid-template-columns:1fr;gap:0.6rem}}
+.ctrl{display:flex;align-items:center;gap:0.6rem}
+.ctrl label{font-size:clamp(0.85rem,3vw,1rem);min-width:90px;color:#aab}
+.ctrl input[type=range]{flex:1;height:6px;-webkit-appearance:none;background:rgba(255,255,255,0.12);border-radius:3px;outline:none}
+.ctrl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#00d2ff;cursor:pointer;box-shadow:0 0 6px rgba(0,210,255,0.4)}
+.ctrl .val{font-size:clamp(0.85rem,3vw,1rem);color:#00d2ff;min-width:40px;text-align:right;font-weight:bold}
+.hint{grid-column:1/-1;text-align:center;font-size:clamp(0.7rem,2.5vw,0.8rem);color:#666;margin-top:0.2rem}
 .copyright{position:fixed;bottom:3px;right:8px;font-size:0.6rem;color:rgba(255,255,255,0.2)}
 </style>
 </head>
 <body>
 <div id="top"><canvas id="c"></canvas></div>
 <div class="panel">
-  <div class="ctrl"><label>Fraktal</label><select id="fractal"><option value="mandelbrot">Mandelbrot</option><option value="julia">Julia</option><option value="burning">Burning Ship</option><option value="tricorn">Tricorn</option></select></div>
-  <div class="ctrl"><label>Iterationen</label><input type="range" id="iter" min="30" max="250" value="100"><span class="val" id="v-iter">100</span></div>
-  <div class="ctrl"><label>Zoom</label><input type="range" id="zoom" min="0" max="250" value="0"><span class="val" id="v-zoom">1.0</span></div>
-  <div class="ctrl"><label>Farbe</label><input type="range" id="hue" min="0" max="360" value="0"><span class="val" id="v-hue">0</span></div>
-  <div class="ctrl"><label>Sättigung</label><input type="range" id="sat" min="20" max="100" value="85"><span class="val" id="v-sat">85</span></div>
-  <div class="ctrl"><label>C-Real</label><input type="range" id="cr" min="-200" max="200" value="-75"><span class="val" id="v-cr">-0.75</span></div>
-  <div class="ctrl"><label>C-Imag</label><input type="range" id="ci" min="-200" max="200" value="15"><span class="val" id="v-ci">0.15</span></div>
-  <div class="ctrl"><label>Symmetrie</label><input type="range" id="sym" min="1" max="12" value="1"><span class="val" id="v-sym">1</span></div>
+  <div class="ctrl"><label>Iterationen</label><input type="range" id="iter" min="30" max="500" value="120"><span class="val" id="v-iter">120</span></div>
+  <div class="ctrl"><label>Farbton</label><input type="range" id="hue" min="0" max="360" value="0"><span class="val" id="v-hue">0°</span></div>
+  <div class="ctrl"><label>Sättigung</label><input type="range" id="sat" min="20" max="100" value="85"><span class="val" id="v-sat">85%</span></div>
+  <div class="ctrl"><label>Symmetrie</label><input type="range" id="sym" min="1" max="12" value="1"><span class="val" id="v-sym">–</span></div>
+  <div class="hint">Mausrad/Pinch = Zoom • Drag = Verschieben • Doppelklick = Reinzoomen</div>
 </div>
 <div class="copyright">© Caroline Hoffmann</div>
 <script>
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
 let W, H, imgData;
+let panX = -0.5, panY = 0, zoom = 1;
 
 function setupCanvas() {
-  const container = document.getElementById('top');
-  const size = Math.floor(Math.min(container.clientWidth - 16, container.clientHeight - 16, 700));
-  W = canvas.width = Math.max(size, 200);
-  H = canvas.height = Math.max(size, 200);
+  const c = document.getElementById('top');
+  const s = Math.floor(Math.min(c.clientWidth - 12, c.clientHeight - 12, 800));
+  W = canvas.width = Math.max(s, 150);
+  H = canvas.height = Math.max(s, 150);
   imgData = ctx.createImageData(W, H);
 }
 
 function getP() {
-  const p = {
-    fractal: document.getElementById('fractal').value,
-    iter: +document.getElementById('iter').value,
-    zoom: Math.pow(1.04, +document.getElementById('zoom').value),
-    hue: +document.getElementById('hue').value,
-    sat: +document.getElementById('sat').value,
-    cr: +document.getElementById('cr').value / 100,
-    ci: +document.getElementById('ci').value / 100,
-    sym: +document.getElementById('sym').value
-  };
-  document.getElementById('v-iter').textContent = p.iter;
-  document.getElementById('v-zoom').textContent = p.zoom.toFixed(1);
-  document.getElementById('v-hue').textContent = p.hue;
-  document.getElementById('v-sat').textContent = p.sat;
-  document.getElementById('v-cr').textContent = p.cr.toFixed(2);
-  document.getElementById('v-ci').textContent = p.ci.toFixed(2);
-  document.getElementById('v-sym').textContent = p.sym;
-  return p;
+  const iter = +document.getElementById('iter').value;
+  const hue = +document.getElementById('hue').value;
+  const sat = +document.getElementById('sat').value;
+  const sym = +document.getElementById('sym').value;
+  document.getElementById('v-iter').textContent = iter;
+  document.getElementById('v-hue').textContent = hue + '°';
+  document.getElementById('v-sat').textContent = sat + '%';
+  document.getElementById('v-sym').textContent = sym === 1 ? '–' : sym + 'x';
+  return { iter, hue, sat, sym };
 }
 
-function hsl2rgb(h, s, l) {
+function hsl(h, s, l) {
   s /= 100; l /= 100;
   const a = s * Math.min(l, 1 - l);
-  const f = (n) => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
-  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+  const f = n => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+  return [f(0) * 255 | 0, f(8) * 255 | 0, f(4) * 255 | 0];
 }
-
-function computeMandelbrot(cx, cy, maxIter) {
-  let r = 0, i = 0;
-  for (let n = 0; n < maxIter; n++) {
-    const r2 = r * r, i2 = i * i;
-    if (r2 + i2 > 4) return n;
-    i = 2 * r * i + cy;
-    r = r2 - i2 + cx;
-  }
-  return -1;
-}
-
-function computeJulia(zr, zi, cr, ci, maxIter) {
-  let r = zr, i = zi;
-  for (let n = 0; n < maxIter; n++) {
-    const r2 = r * r, i2 = i * i;
-    if (r2 + i2 > 4) return n;
-    i = 2 * r * i + ci;
-    r = r2 - i2 + cr;
-  }
-  return -1;
-}
-
-function computeBurning(cx, cy, maxIter) {
-  let r = 0, i = 0;
-  for (let n = 0; n < maxIter; n++) {
-    const r2 = r * r, i2 = i * i;
-    if (r2 + i2 > 4) return n;
-    i = Math.abs(2 * r * i) + cy;
-    r = r2 - i2 + cx;
-  }
-  return -1;
-}
-
-function computeTricorn(cx, cy, maxIter) {
-  let r = 0, i = 0;
-  for (let n = 0; n < maxIter; n++) {
-    const r2 = r * r, i2 = i * i;
-    if (r2 + i2 > 4) return n;
-    i = -2 * r * i + cy;
-    r = r2 - i2 + cx;
-  }
-  return -1;
-}
-
-let panX = 0, panY = 0;
 
 function render() {
   const p = getP();
   const data = imgData.data;
-  const scale = 3 / p.zoom;
+  const scale = 3 / zoom;
 
   for (let py = 0; py < H; py++) {
     for (let px = 0; px < W; px++) {
-      let x = (px - W / 2) / W * scale + panX;
-      let y = (py - H / 2) / H * scale + panY;
+      let x = (px / W - 0.5) * scale + panX;
+      let y = (py / H - 0.5) * scale + panY;
 
-      // Kaleidoscope
       if (p.sym > 1) {
-        const radius = Math.sqrt(x * x + y * y);
-        let angle = Math.atan2(y, x);
-        const sector = Math.PI * 2 / p.sym;
-        angle = Math.abs(((angle % sector) + sector) % sector - sector / 2);
-        x = Math.cos(angle) * radius;
-        y = Math.sin(angle) * radius;
+        const r = Math.sqrt(x * x + y * y);
+        let a = Math.atan2(y, x);
+        const sec = Math.PI * 2 / p.sym;
+        a = Math.abs(((a % sec) + sec) % sec - sec / 2);
+        x = Math.cos(a) * r; y = Math.sin(a) * r;
       }
 
-      let n;
-      if (p.fractal === 'mandelbrot') n = computeMandelbrot(x, y, p.iter);
-      else if (p.fractal === 'julia') n = computeJulia(x, y, p.cr, p.ci, p.iter);
-      else if (p.fractal === 'burning') n = computeBurning(x, y, p.iter);
-      else n = computeTricorn(x, y, p.iter);
+      let zr = 0, zi = 0, n = 0;
+      for (; n < p.iter; n++) {
+        const zr2 = zr * zr, zi2 = zi * zi;
+        if (zr2 + zi2 > 4) break;
+        zi = 2 * zr * zi + y;
+        zr = zr2 - zi2 + x;
+      }
 
       const idx = (py * W + px) * 4;
-      if (n === -1) {
+      if (n === p.iter) {
         data[idx] = data[idx + 1] = data[idx + 2] = 0;
       } else {
+        // Smooth coloring
         const t = n / p.iter;
         const h = (t * 720 + p.hue) % 360;
-        const l = 10 + t * 70;
-        const [r, g, b] = hsl2rgb(h, p.sat, l);
+        const l = 8 + t * 72;
+        const [r, g, b] = hsl(h, p.sat, l);
         data[idx] = r; data[idx + 1] = g; data[idx + 2] = b;
       }
       data[idx + 3] = 255;
@@ -161,65 +105,71 @@ function render() {
   ctx.putImageData(imgData, 0, 0);
 }
 
-// Controls
 let tid;
-function scheduleRender() { clearTimeout(tid); tid = setTimeout(render, 80); }
-document.querySelectorAll('.panel input, .panel select').forEach(el => el.addEventListener('input', scheduleRender));
+function sched() { clearTimeout(tid); tid = setTimeout(render, 60); }
+document.querySelectorAll('.panel input').forEach(el => el.addEventListener('input', sched));
 
-// Pan + Zoom
+// Zoom helpers
+function zoomAt(mx, my, factor) {
+  const scale = 3 / zoom;
+  const wx = (mx - 0.5) * scale + panX;
+  const wy = (my - 0.5) * scale + panY;
+  zoom *= factor;
+  const ns = 3 / zoom;
+  panX = wx - (mx - 0.5) * ns;
+  panY = wy - (my - 0.5) * ns;
+  sched();
+}
+
+// Mouse drag
 let drag = false, dx, dy;
 canvas.addEventListener('mousedown', e => { drag = true; dx = e.clientX; dy = e.clientY; });
 window.addEventListener('mousemove', e => {
   if (!drag) return;
-  const p = getP(); const s = 3 / p.zoom;
+  const s = 3 / zoom;
   panX -= (e.clientX - dx) / W * s; panY -= (e.clientY - dy) / H * s;
-  dx = e.clientX; dy = e.clientY; scheduleRender();
+  dx = e.clientX; dy = e.clientY; sched();
 });
 window.addEventListener('mouseup', () => drag = false);
+
+// Wheel zoom
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const mx = (e.clientX - rect.left) / rect.width;
   const my = (e.clientY - rect.top) / rect.height;
-  const zs = document.getElementById('zoom');
-  const oldS = 3 / Math.pow(1.04, +zs.value);
-  const wx = (mx - 0.5) * oldS + panX, wy = (my - 0.5) * oldS + panY;
-  zs.value = Math.max(0, Math.min(250, +zs.value + (e.deltaY < 0 ? 5 : -5)));
-  const newS = 3 / Math.pow(1.04, +zs.value);
-  panX = wx - (mx - 0.5) * newS; panY = wy - (my - 0.5) * newS;
-  scheduleRender();
-}, {passive: false});
+  zoomAt(mx, my, e.deltaY < 0 ? 1.3 : 0.77);
+}, { passive: false });
+
+// Double click zoom
 canvas.addEventListener('dblclick', e => {
   const rect = canvas.getBoundingClientRect();
-  const mx = (e.clientX - rect.left) / rect.width, my = (e.clientY - rect.top) / rect.height;
-  const zs = document.getElementById('zoom');
-  const oldS = 3 / Math.pow(1.04, +zs.value);
-  const wx = (mx - 0.5) * oldS + panX, wy = (my - 0.5) * oldS + panY;
-  zs.value = Math.min(250, +zs.value + 15);
-  const newS = 3 / Math.pow(1.04, +zs.value);
-  panX = wx - (mx - 0.5) * newS; panY = wy - (my - 0.5) * newS;
-  scheduleRender();
+  zoomAt((e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height, 2.5);
 });
-let tx, ty, pinchDist = 0;
+
+// Touch: pan + pinch
+let tx, ty, pinch = 0;
 canvas.addEventListener('touchstart', e => {
-  e.preventDefault(); tx = e.touches[0].clientX; ty = e.touches[0].clientY;
-  if (e.touches.length === 2) pinchDist = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+  e.preventDefault();
+  tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+  if (e.touches.length === 2) pinch = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
 });
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
   if (e.touches.length === 2) {
     const d = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
-    const zs = document.getElementById('zoom');
-    zs.value = Math.max(0, Math.min(250, +zs.value + (d - pinchDist) * 0.3));
-    pinchDist = d; scheduleRender();
+    const rect = canvas.getBoundingClientRect();
+    const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left) / rect.width;
+    const cy = ((e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top) / rect.height;
+    zoomAt(cx, cy, d / pinch);
+    pinch = d;
   } else {
-    const p = getP(); const s = 3 / p.zoom;
+    const s = 3 / zoom;
     panX -= (e.touches[0].clientX - tx) / W * s; panY -= (e.touches[0].clientY - ty) / H * s;
-    tx = e.touches[0].clientX; ty = e.touches[0].clientY; scheduleRender();
+    tx = e.touches[0].clientX; ty = e.touches[0].clientY; sched();
   }
 });
 
-// Init
 window.addEventListener('resize', () => { setupCanvas(); render(); });
 setupCanvas();
 render();
