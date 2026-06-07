@@ -412,10 +412,8 @@ function drawKO(){
   ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(0,H/2-40,W,80);
   ctx.fillStyle='#ff4444';ctx.font='bold 48px sans-serif';ctx.textAlign='center';
   ctx.fillText('K.O.!',W/2,H/2+15);
-  if(koTimer<60){
-    ctx.fillStyle='#fff';ctx.font='20px sans-serif';
-    ctx.fillText(enemy.hp<=0?'Du gewinnst! Tippe für nächste Runde':'Du verlierst! Tippe für Neustart',W/2,H/2+50);
-  }
+  ctx.fillStyle='#fff';ctx.font='18px sans-serif';
+  ctx.fillText(enemy.hp<=0?'Du gewinnst! Nächste Runde...':'Nochmal!',W/2,H/2+50);
 }
 
 function roundRect(x,y,w,h,r){
@@ -426,6 +424,24 @@ function roundRect(x,y,w,h,r){
 
 // Update
 function update(){
+  if(gameState==='ko'){
+    koTimer--;
+    if(koTimer<=0){
+      if(enemy.hp<=0){// Next round
+        round++;
+        enemyChar=(enemyChar+1)%CHARS.length;
+        if(enemyChar===playerChar)enemyChar=(enemyChar+1)%CHARS.length;
+        enemy={hp:100,maxHp:100,x:580,y:H-130,action:'idle',actionTimer:0,facing:-1,hits:0};
+        player.hp=Math.min(100,player.hp+30);
+        gameState='fight';
+      }else{// Player lost - restart with same char
+        enemy={hp:100,maxHp:100,x:580,y:H-130,action:'idle',actionTimer:0,facing:-1,hits:0};
+        player={hp:100,maxHp:100,x:200,y:H-130,action:'idle',actionTimer:0,facing:1,hits:0};
+        round=1;gameState='fight';
+      }
+    }
+    return;
+  }
   if(gameState!=='fight')return;
   if(player.actionTimer>0)player.actionTimer--;
   else player.action='idle';
@@ -458,22 +474,7 @@ function loop(){update();draw();requestAnimationFrame(loop);}
 
 // Input
 function handleAction(type){
-  if(gameState==='ko'){
-    if(koTimer<60){
-      if(enemy.hp<=0){// Next round
-        round++;
-        enemyChar=(enemyChar+1)%CHARS.length;
-        if(enemyChar===playerChar)enemyChar=(enemyChar+1)%CHARS.length;
-        enemy={hp:100,maxHp:100,x:580,y:H-130,action:'idle',actionTimer:0,facing:-1,hits:0};
-        player.hp=Math.min(100,player.hp+30);
-        gameState='fight';
-      }else{// Restart
-        document.getElementById('select').style.display='flex';
-        gameState='select';
-      }
-    }
-    return;
-  }
+  if(gameState==='ko'){koTimer=0;return;}
   if(gameState!=='fight')return;
   doAttack(player,enemy,type);
 }
