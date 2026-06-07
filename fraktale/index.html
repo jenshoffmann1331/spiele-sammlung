@@ -6,206 +6,187 @@
 <title>🌀 Fraktal-Kaleidoskop</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#000;display:flex;flex-direction:column;align-items:center;min-height:100dvh;font-family:'Segoe UI',system-ui,sans-serif;color:#eee;overflow-x:hidden}
-canvas{display:block}
-.panel{width:100%;max-width:800px;padding:0.5rem 1rem;background:rgba(20,20,30,0.95);display:flex;flex-wrap:wrap;gap:0.5rem 1rem;align-items:center;font-size:clamp(0.7rem,2.5vw,0.8rem)}
-.panel select,.panel input[type=range]{height:28px;border-radius:4px;border:1px solid #444;background:#222;color:#eee;font-size:0.8rem}
-.panel select{padding:0 0.4rem;min-width:120px}
-.panel input[type=range]{flex:1;min-width:80px;max-width:150px;-webkit-appearance:none;background:rgba(255,255,255,0.1)}
-.panel input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#00d2ff}
-.panel label{display:flex;align-items:center;gap:4px;white-space:nowrap}
-.panel label span{color:#00d2ff;min-width:28px;text-align:right}
-.copyright{position:absolute;bottom:3px;right:8px;font-size:0.6rem;color:rgba(255,255,255,0.25)}
+body{background:#111;font-family:'Segoe UI',system-ui,sans-serif;color:#eee;display:flex;flex-direction:column;height:100dvh}
+#top{flex:1;display:flex;justify-content:center;align-items:center;padding:0.5rem;min-height:0}
+canvas{border-radius:8px;max-width:100%;max-height:100%;object-fit:contain}
+.panel{background:#1a1a2a;border-top:1px solid #333;padding:0.8rem 1rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.5rem 1.5rem}
+.ctrl{display:flex;align-items:center;gap:0.5rem}
+.ctrl label{font-size:0.75rem;color:#aaa;min-width:60px}
+.ctrl select{flex:1;height:26px;border-radius:4px;border:1px solid #444;background:#252535;color:#eee;font-size:0.75rem;padding:0 4px}
+.ctrl input[type=range]{flex:1;height:4px;-webkit-appearance:none;background:rgba(255,255,255,0.15);border-radius:2px;outline:none}
+.ctrl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#00d2ff;cursor:pointer}
+.ctrl .val{font-size:0.7rem;color:#00d2ff;min-width:32px;text-align:right}
+.copyright{position:fixed;bottom:3px;right:8px;font-size:0.6rem;color:rgba(255,255,255,0.2)}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<div id="top"><canvas id="c"></canvas></div>
 <div class="panel">
-<label>Fraktal: <select id="fractal">
-<option value="mandelbrot">Mandelbrot</option>
-<option value="julia">Julia-Menge</option>
-<option value="burning">Burning Ship</option>
-<option value="tricorn">Tricorn</option>
-<option value="newton">Newton-Fraktal</option>
-</select></label>
-<label>Iter: <input type="range" id="iter" min="20" max="300" value="80"><span id="v-iter">80</span></label>
-<label>Zoom: <input type="range" id="zoom" min="1" max="200" value="10"><span id="v-zoom">1.0</span></label>
-<label>Farbe: <input type="range" id="hueShift" min="0" max="360" value="0"><span id="v-hue">0</span></label>
-<label>Sättigung: <input type="range" id="sat" min="30" max="100" value="80"><span id="v-sat">80</span></label>
-<label>C-Real: <input type="range" id="cReal" min="-200" max="200" value="-75"><span id="v-cr">-0.75</span></label>
-<label>C-Imag: <input type="range" id="cImag" min="-200" max="200" value="15"><span id="v-ci">0.15</span></label>
-<label>Symmetrie: <input type="range" id="sym" min="1" max="12" value="1"><span id="v-sym">1</span></label>
+  <div class="ctrl"><label>Fraktal</label><select id="fractal"><option value="mandelbrot">Mandelbrot</option><option value="julia">Julia</option><option value="burning">Burning Ship</option><option value="tricorn">Tricorn</option></select></div>
+  <div class="ctrl"><label>Iterationen</label><input type="range" id="iter" min="30" max="250" value="100"><span class="val" id="v-iter">100</span></div>
+  <div class="ctrl"><label>Zoom</label><input type="range" id="zoom" min="0" max="250" value="0"><span class="val" id="v-zoom">1.0</span></div>
+  <div class="ctrl"><label>Farbe</label><input type="range" id="hue" min="0" max="360" value="0"><span class="val" id="v-hue">0</span></div>
+  <div class="ctrl"><label>Sättigung</label><input type="range" id="sat" min="20" max="100" value="85"><span class="val" id="v-sat">85</span></div>
+  <div class="ctrl"><label>C-Real</label><input type="range" id="cr" min="-200" max="200" value="-75"><span class="val" id="v-cr">-0.75</span></div>
+  <div class="ctrl"><label>C-Imag</label><input type="range" id="ci" min="-200" max="200" value="15"><span class="val" id="v-ci">0.15</span></div>
+  <div class="ctrl"><label>Symmetrie</label><input type="range" id="sym" min="1" max="12" value="1"><span class="val" id="v-sym">1</span></div>
 </div>
 <div class="copyright">© Caroline Hoffmann</div>
 <script>
-const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
-let W,H,imgData;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, imgData;
 
-function resize(){
-  const panel=document.querySelector('.panel');
-  const panelH=panel?panel.offsetHeight:130;
-  W=canvas.width=Math.min(window.innerWidth,800);
-  H=canvas.height=Math.min(window.innerHeight-panelH-10,W,800);
-  if(W<1)W=canvas.width=400;
-  if(H<1)H=canvas.height=400;
-  imgData=ctx.createImageData(W,H);
-  render();
-}
-resize();window.addEventListener('resize',resize);
-// Ensure render after layout is ready
-requestAnimationFrame(()=>{resize();});
-
-// Center offsets for panning
-let cx=0,cy=0;
-
-function getParams(){
-  const iter=+document.getElementById('iter').value;
-  const zoomRaw=+document.getElementById('zoom').value;
-  const zoom=Math.pow(1.05,zoomRaw);
-  const hueShift=+document.getElementById('hueShift').value;
-  const sat=+document.getElementById('sat').value;
-  const cReal=+document.getElementById('cReal').value/100;
-  const cImag=+document.getElementById('cImag').value/100;
-  const sym=+document.getElementById('sym').value;
-  const fractal=document.getElementById('fractal').value;
-  document.getElementById('v-iter').textContent=iter;
-  document.getElementById('v-zoom').textContent=zoom.toFixed(1);
-  document.getElementById('v-hue').textContent=hueShift;
-  document.getElementById('v-sat').textContent=sat;
-  document.getElementById('v-cr').textContent=cReal.toFixed(2);
-  document.getElementById('v-ci').textContent=cImag.toFixed(2);
-  document.getElementById('v-sym').textContent=sym;
-  return{iter,zoom,hueShift,sat,cReal,cImag,sym,fractal};
+function setupCanvas() {
+  const container = document.getElementById('top');
+  const size = Math.floor(Math.min(container.clientWidth - 16, container.clientHeight - 16, 700));
+  W = canvas.width = Math.max(size, 200);
+  H = canvas.height = Math.max(size, 200);
+  imgData = ctx.createImageData(W, H);
 }
 
-function hslToRgb(h,s,l){
-  h/=360;s/=100;l/=100;
-  let r,g,b;
-  if(s===0){r=g=b=l;}else{
-    const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};
-    const q=l<0.5?l*(1+s):l+s-l*s;const p=2*l-q;
-    r=hue2rgb(p,q,h+1/3);g=hue2rgb(p,q,h);b=hue2rgb(p,q,h-1/3);
+function getP() {
+  const p = {
+    fractal: document.getElementById('fractal').value,
+    iter: +document.getElementById('iter').value,
+    zoom: Math.pow(1.04, +document.getElementById('zoom').value),
+    hue: +document.getElementById('hue').value,
+    sat: +document.getElementById('sat').value,
+    cr: +document.getElementById('cr').value / 100,
+    ci: +document.getElementById('ci').value / 100,
+    sym: +document.getElementById('sym').value
+  };
+  document.getElementById('v-iter').textContent = p.iter;
+  document.getElementById('v-zoom').textContent = p.zoom.toFixed(1);
+  document.getElementById('v-hue').textContent = p.hue;
+  document.getElementById('v-sat').textContent = p.sat;
+  document.getElementById('v-cr').textContent = p.cr.toFixed(2);
+  document.getElementById('v-ci').textContent = p.ci.toFixed(2);
+  document.getElementById('v-sym').textContent = p.sym;
+  return p;
+}
+
+function hsl2rgb(h, s, l) {
+  s /= 100; l /= 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+
+function computeMandelbrot(cx, cy, maxIter) {
+  let r = 0, i = 0;
+  for (let n = 0; n < maxIter; n++) {
+    const r2 = r * r, i2 = i * i;
+    if (r2 + i2 > 4) return n;
+    i = 2 * r * i + cy;
+    r = r2 - i2 + cx;
   }
-  return[Math.round(r*255),Math.round(g*255),Math.round(b*255)];
+  return -1;
 }
 
-function iterate(fractal,zr,zi,cr,ci,maxIter){
-  let r=zr,i=zi;
-  for(let n=0;n<maxIter;n++){
-    const r2=r*r,i2=i*i;
-    if(r2+i2>4)return n;
-    if(fractal==='mandelbrot'||fractal==='julia'){
-      const newR=r2-i2+cr;
-      i=2*r*i+ci;r=newR;
-    }else if(fractal==='burning'){
-      const newR=r2-i2+cr;
-      i=Math.abs(2*r*i)+ci;r=newR;
-    }else if(fractal==='tricorn'){
-      const newR=r2-i2+cr;
-      i=-2*r*i+ci;r=newR;
-    }else if(fractal==='newton'){
-      // z^3 - 1 = 0 Newton's method
-      const r3=r*r2-3*r*i2, i3=3*r2*i-i*i2;
-      const denom=3*(r2+i2)*(r2+i2);
-      if(denom<1e-10)return n;
-      const dr=r-(r3*r2+r3*i2+r)/(denom+1);
-      const di=i-(i3*r2+i3*i2+i)/(denom+1);
-      // Simplified: just iterate z - (z^3-1)/(3z^2)
-      const zr2=r*r-i*i, zi2=2*r*i;
-      const zr3=zr2*r-zi2*i-1, zi3=zr2*i+zi2*r;
-      const dr2=3*(r*r-i*i), di2=6*r*i;
-      const denom2=dr2*dr2+di2*di2;
-      if(denom2<1e-10)return n;
-      r=r-(zr3*dr2+zi3*di2)/denom2;
-      i=i-(-zr3*di2+zi3*dr2)/denom2;
-      if((r-1)*(r-1)+i*i<1e-6)return n*3;
-      if((r+0.5)*(r+0.5)+(i-0.866)*(i-0.866)<1e-6)return n*3+1;
-      if((r+0.5)*(r+0.5)+(i+0.866)*(i+0.866)<1e-6)return n*3+2;
-    }
+function computeJulia(zr, zi, cr, ci, maxIter) {
+  let r = zr, i = zi;
+  for (let n = 0; n < maxIter; n++) {
+    const r2 = r * r, i2 = i * i;
+    if (r2 + i2 > 4) return n;
+    i = 2 * r * i + ci;
+    r = r2 - i2 + cr;
   }
-  return maxIter;
+  return -1;
 }
 
-function render(){
-  const p=getParams();
-  const data=imgData.data;
-  const scale=3/p.zoom;
+function computeBurning(cx, cy, maxIter) {
+  let r = 0, i = 0;
+  for (let n = 0; n < maxIter; n++) {
+    const r2 = r * r, i2 = i * i;
+    if (r2 + i2 > 4) return n;
+    i = Math.abs(2 * r * i) + cy;
+    r = r2 - i2 + cx;
+  }
+  return -1;
+}
 
-  for(let py=0;py<H;py++){
-    for(let px=0;px<W;px++){
-      let x=(px-W/2)*scale/W+cx;
-      let y=(py-H/2)*scale/H+cy;
+function computeTricorn(cx, cy, maxIter) {
+  let r = 0, i = 0;
+  for (let n = 0; n < maxIter; n++) {
+    const r2 = r * r, i2 = i * i;
+    if (r2 + i2 > 4) return n;
+    i = -2 * r * i + cy;
+    r = r2 - i2 + cx;
+  }
+  return -1;
+}
 
-      // Kaleidoscope symmetry
-      if(p.sym>1){
-        let angle=Math.atan2(y,x);
-        const radius=Math.sqrt(x*x+y*y);
-        const sector=Math.PI*2/p.sym;
-        angle=Math.abs(((angle%sector)+sector)%sector-sector/2);
-        x=Math.cos(angle)*radius;
-        y=Math.sin(angle)*radius;
+let panX = 0, panY = 0;
+
+function render() {
+  const p = getP();
+  const data = imgData.data;
+  const scale = 3 / p.zoom;
+
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      let x = (px - W / 2) / W * scale + panX;
+      let y = (py - H / 2) / H * scale + panY;
+
+      // Kaleidoscope
+      if (p.sym > 1) {
+        const radius = Math.sqrt(x * x + y * y);
+        let angle = Math.atan2(y, x);
+        const sector = Math.PI * 2 / p.sym;
+        angle = Math.abs(((angle % sector) + sector) % sector - sector / 2);
+        x = Math.cos(angle) * radius;
+        y = Math.sin(angle) * radius;
       }
 
       let n;
-      if(p.fractal==='julia'){
-        n=iterate('julia',x,y,p.cReal,p.cImag,p.iter);
-      }else if(p.fractal==='mandelbrot'){
-        n=iterate('mandelbrot',0,0,x,y,p.iter);
-      }else if(p.fractal==='burning'){
-        n=iterate('burning',0,0,x,y,p.iter);
-      }else if(p.fractal==='tricorn'){
-        n=iterate('tricorn',0,0,x,y,p.iter);
-      }else{
-        n=iterate('newton',x,y,0,0,p.iter);
-      }
+      if (p.fractal === 'mandelbrot') n = computeMandelbrot(x, y, p.iter);
+      else if (p.fractal === 'julia') n = computeJulia(x, y, p.cr, p.ci, p.iter);
+      else if (p.fractal === 'burning') n = computeBurning(x, y, p.iter);
+      else n = computeTricorn(x, y, p.iter);
 
-      const idx=(py*W+px)*4;
-      if(n>=p.iter){
-        data[idx]=data[idx+1]=data[idx+2]=0;
-      }else{
-        // Smooth coloring with multiple hue cycles
-        const t=n/p.iter;
-        const h=(t*360*3+p.hueShift)%360;
-        const l=20+t*60;
-        const[r,g,b]=hslToRgb(h,p.sat,l);
-        data[idx]=r;data[idx+1]=g;data[idx+2]=b;
+      const idx = (py * W + px) * 4;
+      if (n === -1) {
+        data[idx] = data[idx + 1] = data[idx + 2] = 0;
+      } else {
+        const t = n / p.iter;
+        const h = (t * 720 + p.hue) % 360;
+        const l = 10 + t * 70;
+        const [r, g, b] = hsl2rgb(h, p.sat, l);
+        data[idx] = r; data[idx + 1] = g; data[idx + 2] = b;
       }
-      data[idx+3]=255;
+      data[idx + 3] = 255;
     }
   }
-  ctx.putImageData(imgData,0,0);
+  ctx.putImageData(imgData, 0, 0);
 }
 
-// Debounced render
-let renderTimeout;
-function scheduleRender(){clearTimeout(renderTimeout);renderTimeout=setTimeout(render,50);}
+// Controls
+let tid;
+function scheduleRender() { clearTimeout(tid); tid = setTimeout(render, 80); }
+document.querySelectorAll('.panel input, .panel select').forEach(el => el.addEventListener('input', scheduleRender));
 
-document.querySelectorAll('.panel input,.panel select').forEach(el=>{
-  el.addEventListener('input',scheduleRender);
+// Pan
+let drag = false, dx, dy;
+canvas.addEventListener('mousedown', e => { drag = true; dx = e.clientX; dy = e.clientY; });
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  const p = getP(); const s = 3 / p.zoom;
+  panX -= (e.clientX - dx) / W * s; panY -= (e.clientY - dy) / H * s;
+  dx = e.clientX; dy = e.clientY; scheduleRender();
+});
+window.addEventListener('mouseup', () => drag = false);
+let tx, ty;
+canvas.addEventListener('touchstart', e => { e.preventDefault(); tx = e.touches[0].clientX; ty = e.touches[0].clientY; });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault(); const p = getP(); const s = 3 / p.zoom;
+  panX -= (e.touches[0].clientX - tx) / W * s; panY -= (e.touches[0].clientY - ty) / H * s;
+  tx = e.touches[0].clientX; ty = e.touches[0].clientY; scheduleRender();
 });
 
-// Pan with mouse drag
-let dragging=false,dragX,dragY;
-canvas.addEventListener('mousedown',e=>{dragging=true;dragX=e.clientX;dragY=e.clientY;});
-canvas.addEventListener('mousemove',e=>{
-  if(!dragging)return;
-  const p=getParams();const scale=3/p.zoom;
-  cx-=(e.clientX-dragX)*scale/W;cy-=(e.clientY-dragY)*scale/H;
-  dragX=e.clientX;dragY=e.clientY;scheduleRender();
-});
-canvas.addEventListener('mouseup',()=>dragging=false);
-canvas.addEventListener('mouseleave',()=>dragging=false);
-
-// Touch pan
-let touchX,touchY;
-canvas.addEventListener('touchstart',e=>{e.preventDefault();touchX=e.touches[0].clientX;touchY=e.touches[0].clientY;});
-canvas.addEventListener('touchmove',e=>{
-  e.preventDefault();
-  const p=getParams();const scale=3/p.zoom;
-  cx-=(e.touches[0].clientX-touchX)*scale/W;cy-=(e.touches[0].clientY-touchY)*scale/H;
-  touchX=e.touches[0].clientX;touchY=e.touches[0].clientY;scheduleRender();
-});
-
+// Init
+window.addEventListener('resize', () => { setupCanvas(); render(); });
+setupCanvas();
 render();
 </script>
 </body>
